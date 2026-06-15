@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt, QSettings, QPoint, QRect
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QTabWidget, QFrame,
+    QTabWidget, QFrame, QComboBox,
 )
 
 from meister_guide.config.geometry import save_geometry, restore_geometry
@@ -11,10 +11,12 @@ _DEFAULT_RECT = QRect(200, 200, 460, 620)
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, settings: QSettings):
+    def __init__(self, settings: QSettings, games=None):
         super().__init__()
         self._settings = settings
         self._drag_offset = None
+        self._games = list(games) if games else []
+        self.active_game = None
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -65,6 +67,12 @@ class OverlayWindow(QWidget):
         self.game_indicator.setObjectName("GameIndicator")
         lay.addWidget(self.game_indicator)
 
+        self.game_dropdown = QComboBox()
+        self.game_dropdown.setObjectName("GameDropdown")
+        self.game_dropdown.currentIndexChanged.connect(self._on_manual_pick)
+        lay.addWidget(self.game_dropdown)
+        self._populate_dropdown()
+
         self._header = header
         return header
 
@@ -98,6 +106,43 @@ class OverlayWindow(QWidget):
         close.clicked.connect(self.hide)
         lay.addWidget(close)
         return footer
+
+    # ---- game selection -------------------------------------------------
+    def _populate_dropdown(self):
+        self.game_dropdown.blockSignals(True)
+        self.game_dropdown.clear()
+        self.game_dropdown.addItem("Select a game...", None)
+        for game in self._games:
+            self.game_dropdown.addItem(game.name, game.id)
+        self.game_dropdown.blockSignals(False)
+
+    def set_games(self, games):
+        self._games = list(games)
+        self._populate_dropdown()
+
+    def _set_active(self, game, manual: bool):
+        self.active_game = game
+        if game is None:
+            self.game_indicator.setText("● No game detected")
+            self.game_dropdown.setVisible(True)
+        else:
+            suffix = " (manual)" if manual else ""
+            self.game_indicator.setText(f"● Playing: {game.name}{suffix}")
+            # Hide the picker on auto-detection; keep it on a manual pick so the
+            # user can re-choose.
+            self.game_dropdown.setVisible(manual)
+
+    def set_detected_game(self, game):
+        """Called by the detector. A detection always wins over a manual pick."""
+        self._set_active(game, manual=False)
+
+    def _on_manual_pick(self, index):
+        game_id = self.game_dropdown.itemData(index)
+        if game_id is None:
+            return
+        chosen = next((g for g in self._games if g.id == game_id), None)
+        if chosen is not None:
+            self._set_active(chosen, manual=True)
 
     # ---- geometry persistence ------------------------------------------
     def _apply_saved_geometry(self):
