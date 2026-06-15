@@ -1,4 +1,8 @@
 """Global hotkey parsing (pure) + Win32 registration (added in Task 7)."""
+import ctypes
+from ctypes import wintypes
+
+from PySide6.QtCore import QAbstractNativeEventFilter, QObject, Signal
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
@@ -51,10 +55,6 @@ def parse_hotkey(spec: str):
         return mods, ord(key.upper())
     raise ValueError(f"Unknown key in hotkey spec: {spec!r}")
 
-
-import ctypes
-from ctypes import wintypes
-from PySide6.QtCore import QAbstractNativeEventFilter, QObject, Signal
 
 _WM_HOTKEY = 0x0312
 _HOTKEY_ID = 1
