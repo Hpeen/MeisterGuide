@@ -41,6 +41,7 @@ def main() -> int:
     init_db(conn)
     games_repo = GamesRepo(conn)
     games_repo.seed_defaults()
+    games_repo.reconcile_builtin_games()  # upgrade a stale Minecraft process list
 
     overlay = OverlayWindow(settings, games_repo.list_games())
 

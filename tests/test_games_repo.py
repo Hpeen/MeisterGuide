@@ -16,10 +16,28 @@ def test_seed_adds_minecraft_once(tmp_path):
     assert len(games) == 1
     mc = games[0]
     assert mc.name == "Minecraft"
-    assert "javaw.exe" in mc.process_names
-    assert "Minecraft.exe" in mc.process_names
-    assert "MinecraftLauncher.exe" in mc.process_names
+    assert mc.process_names == ["Minecraft.Windows.exe", "javaw.exe::minecraft"]
     assert mc.wiki_url == "https://minecraft.wiki"
+
+
+def test_reconcile_upgrades_stale_minecraft(tmp_path):
+    repo = _repo(tmp_path)
+    old = repo.add(
+        "Minecraft",
+        ["javaw.exe", "Minecraft.exe", "MinecraftLauncher.exe"],
+        "https://minecraft.wiki",
+    )
+    repo.reconcile_builtin_games()
+    assert repo.get(old.id).process_names == [
+        "Minecraft.Windows.exe", "javaw.exe::minecraft",
+    ]
+
+
+def test_reconcile_leaves_user_edited_minecraft_alone(tmp_path):
+    repo = _repo(tmp_path)
+    custom = repo.add("Minecraft", ["javaw.exe"], "https://minecraft.wiki")
+    repo.reconcile_builtin_games()
+    assert repo.get(custom.id).process_names == ["javaw.exe"]
 
 
 def test_add_get_update_delete(tmp_path):

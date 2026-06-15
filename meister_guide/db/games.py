@@ -14,9 +14,21 @@ class Game:
 
 _MINECRAFT = {
     "name": "Minecraft",
-    "process_names": ["javaw.exe", "Minecraft.exe", "MinecraftLauncher.exe"],
+    # The actual game, not the launcher. Bedrock is Minecraft.Windows.exe;
+    # Java runs as javaw.exe, qualified by a 'minecraft' command-line keyword so
+    # other Java apps don't false-trigger. The launcher (Minecraft.exe /
+    # MinecraftLauncher.exe) is deliberately excluded because it lingers in the
+    # background after its window is closed.
+    "process_names": ["Minecraft.Windows.exe", "javaw.exe::minecraft"],
     "wiki_url": "https://minecraft.wiki",
 }
+
+# Built-in Minecraft process lists shipped by earlier versions. A Minecraft row
+# still carrying one of these (i.e. untouched by the user) is auto-upgraded to
+# the current list by reconcile_builtin_games().
+_STALE_MINECRAFT_PROCESS_LISTS = [
+    ["javaw.exe", "Minecraft.exe", "MinecraftLauncher.exe"],
+]
 
 _SELECT = "SELECT id, name, process_names, wiki_url FROM games"
 
@@ -65,3 +77,19 @@ class GamesRepo:
                 _MINECRAFT["process_names"],
                 _MINECRAFT["wiki_url"],
             )
+
+    def reconcile_builtin_games(self) -> None:
+        """Upgrade a stale built-in Minecraft entry to the current process list.
+
+        Only a Minecraft row whose process list exactly matches a known old
+        default is touched, so any user edits are preserved.
+        """
+        for game in self.list_games():
+            if (game.name == "Minecraft"
+                    and game.process_names in _STALE_MINECRAFT_PROCESS_LISTS):
+                self.update(
+                    game.id,
+                    game.name,
+                    _MINECRAFT["process_names"],
+                    game.wiki_url,
+                )
