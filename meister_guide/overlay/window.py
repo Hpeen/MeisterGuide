@@ -133,7 +133,7 @@ class OverlayWindow(QWidget):
 
     def _on_header(self, pos) -> bool:
         # pos is relative to the window; header sits in the top 40px past the spine.
-        return pos.y() <= self._header.height() and pos.x() >= 4
+        return pos.y() < self._header.height() and pos.x() >= 4
 
     # ---- toggle ---------------------------------------------------------
     def toggle(self):

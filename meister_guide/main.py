@@ -1,7 +1,7 @@
 """Meister Guide entry point: tray icon, global hotkey, overlay window."""
 import sys
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
@@ -22,7 +22,7 @@ def _make_tray_icon() -> QIcon:
     painter.setPen(QColor("#E07B39"))
     font = QFont("Segoe UI Symbol", 18)
     painter.setFont(font)
-    painter.drawText(pix.rect(), 0x0084, "⚒")  # AlignCenter, crossed hammers
+    painter.drawText(pix.rect(), Qt.AlignCenter, "⚒")  # crossed hammers
     painter.end()
     return QIcon(pix)
 
@@ -65,6 +65,7 @@ def main() -> int:
         )
 
     app.aboutToQuit.connect(hotkey.unregister)
+    app.aboutToQuit.connect(settings.sync)  # flush geometry once on quit
     return app.exec()
 
 

@@ -5,10 +5,12 @@ _KEY = "overlay/geometry"
 
 
 def save_geometry(settings: QSettings, rect: QRect) -> None:
+    # No sync() here on purpose: this is called from moveEvent/resizeEvent,
+    # which fire continuously during a drag. QSettings buffers writes and the
+    # app flushes once on quit (see main.py aboutToQuit).
     settings.setValue(
         _KEY, [rect.x(), rect.y(), rect.width(), rect.height()]
     )
-    settings.sync()
 
 
 def restore_geometry(settings: QSettings):
