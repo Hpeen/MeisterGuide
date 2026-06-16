@@ -99,3 +99,11 @@ def test_non_maxlag_api_error_raises():
     import pytest
     with pytest.raises(RuntimeError):
         list(client.iter_batches())
+
+
+def test_article_count_reads_statistics():
+    def fake_get(params):
+        assert params.get("meta") == "siteinfo"
+        return {"query": {"statistics": {"articles": 16689, "pages": 296047}}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    assert client.article_count() == 16689

@@ -83,6 +83,14 @@ class WikiClient:
         raise RuntimeError(f"MediaWiki API failed after {self._max_retries} "
                            f"attempts: {last_err}")
 
+    def article_count(self):
+        """Total article-namespace count, for the ingest progress total."""
+        data = self._fetch({
+            "action": "query", "format": "json",
+            "meta": "siteinfo", "siprop": "statistics", "maxlag": 5,
+        })
+        return data.get("query", {}).get("statistics", {}).get("articles")
+
     def iter_batches(self, start_token=None):
         """Yield (list[WikiArticle], next_token|None) per API batch."""
         token = start_token
