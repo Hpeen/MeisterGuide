@@ -5,7 +5,15 @@ from PySide6.QtWidgets import (
     QTabWidget, QFrame, QComboBox,
 )
 
+import sys
+
 from meister_guide.config.geometry import save_geometry, restore_geometry
+from meister_guide.overlay.win32_topmost import (
+    force_window_to_front,
+    get_foreground_window,
+    is_window_topmost,
+    set_window_topmost,
+)
 
 _DEFAULT_RECT = QRect(200, 200, 460, 620)
 
@@ -17,6 +25,9 @@ class OverlayWindow(QWidget):
         self._drag_offset = None
         self._games = list(games) if games else []
         self.active_game = None
+        # HWND of a fullscreen/always-on-top game we temporarily demoted so the
+        # overlay can sit above it; restored when the overlay hides.
+        self._demoted_hwnd = None
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -185,6 +196,35 @@ class OverlayWindow(QWidget):
         if self.isVisible():
             self.hide()
         else:
+            # Capture the game BEFORE we steal the foreground, then drop it out
+            # of the always-on-top band so our overlay can sit above a
+            # fullscreen game (e.g. Minecraft). Restored in hideEvent.
+            self._demote_foreground_game()
             self.show()
             self.raise_()
             self.activateWindow()
+            # WS_EX_TOPMOST + raise_() lose to a borderless-fullscreen game that
+            # owns the foreground, so re-assert topmost natively on every show.
+            force_window_to_front(int(self.winId()))
+
+    def hideEvent(self, event):
+        # Covers Alt+Insert, the tray toggle, and the footer minimize/close
+        # buttons — all routes that hide the overlay restore the game.
+        self._restore_demoted_game()
+        super().hideEvent(event)
+
+    def _demote_foreground_game(self):
+        if sys.platform != "win32":
+            return
+        fg = get_foreground_window()
+        my_hwnd = int(self.winId())
+        # Only touch a window that is *already* topmost (a fullscreen game or
+        # another always-on-top app) so we never disturb ordinary windows.
+        if fg and fg != my_hwnd and is_window_topmost(fg):
+            set_window_topmost(fg, False)
+            self._demoted_hwnd = fg
+
+    def _restore_demoted_game(self):
+        if self._demoted_hwnd:
+            set_window_topmost(self._demoted_hwnd, True)
+            self._demoted_hwnd = None
