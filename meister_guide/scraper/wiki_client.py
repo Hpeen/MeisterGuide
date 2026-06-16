@@ -22,11 +22,13 @@ class WikiArticle:
 
 class WikiClient:
     def __init__(self, api_url=DEFAULT_API, http_get=None, delay=1.0,
-                 sleep=time.sleep):
+                 sleep=time.sleep, max_retries=5, backoff=1.0):
         self._api = api_url
         self._http_get = http_get or self._default_get
         self._delay = delay
         self._sleep = sleep
+        self._max_retries = max_retries
+        self._backoff = backoff
 
     def _default_get(self, params):
         import requests
@@ -57,11 +59,32 @@ class WikiClient:
                                    page["extract"], page.get("lastrevid")))
         return out
 
+    def _fetch(self, params):
+        """One API call with bounded exponential backoff on transient failures
+        and MediaWiki maxlag responses."""
+        wait = self._backoff
+        last_err = None
+        for attempt in range(self._max_retries):
+            try:
+                data = self._http_get(params)
+            except Exception as err:          # transient HTTP/network error
+                last_err = err
+                self._sleep(wait)
+                wait *= 2
+                continue
+            if isinstance(data, dict) and data.get("error", {}).get("code") == "maxlag":
+                self._sleep(wait)
+                wait *= 2
+                continue
+            return data
+        raise RuntimeError(f"MediaWiki API failed after {self._max_retries} "
+                           f"attempts: {last_err}")
+
     def iter_batches(self, start_token=None):
         """Yield (list[WikiArticle], next_token|None) per API batch."""
         token = start_token
         while True:
-            data = self._http_get(self._params(token))
+            data = self._fetch(self._params(token))
             articles = self._articles_from(data)
             cont = data.get("continue")
             next_token = json.dumps(cont) if cont else None

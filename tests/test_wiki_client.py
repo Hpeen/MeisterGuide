@@ -51,3 +51,41 @@ def test_iter_batches_follows_continue_token():
     assert all_titles == ["A", "B"]
     # second request carried the continuation params
     assert seen_params[1].get("gapcontinue") == "B"
+
+
+def test_retries_transient_error_then_succeeds():
+    calls = {"n": 0}
+    def flaky_get(params):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("503 Service Unavailable")
+        return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
+    slept = []
+    client = WikiClient(http_get=flaky_get, delay=0, sleep=lambda s: slept.append(s))
+
+    batches = list(client.iter_batches())
+    assert calls["n"] == 2            # retried once
+    assert slept                      # backed off before retry
+    assert batches[0][0][0].title == "A"
+
+
+def test_maxlag_error_is_retried():
+    calls = {"n": 0}
+    def lagging_get(params):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"error": {"code": "maxlag", "info": "Waiting for a server"}}
+        return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
+    client = WikiClient(http_get=lagging_get, delay=0, sleep=lambda s: None)
+    list(client.iter_batches())
+    assert calls["n"] == 2
+
+
+def test_gives_up_after_max_retries():
+    def always_fail(params):
+        raise RuntimeError("network down")
+    client = WikiClient(http_get=always_fail, delay=0, sleep=lambda s: None,
+                        max_retries=3)
+    import pytest
+    with pytest.raises(RuntimeError):
+        list(client.iter_batches())
