@@ -37,7 +37,7 @@ class OllamaClient:
         try:
             resp = requests.post(url, json=payload, stream=True, timeout=300)
             resp.raise_for_status()
-            return resp.iter_lines()
+            return resp.iter_lines(decode_unicode=True)
         except requests.RequestException as err:
             raise OllamaUnavailable(str(err))
 
@@ -54,10 +54,10 @@ class OllamaClient:
             {"model": model, "messages": messages, "stream": True},
         )
         for line in lines:
-            if not line:
-                continue
             if isinstance(line, bytes):
                 line = line.decode("utf-8")
+            if not line or not line.strip():
+                continue
             obj = json.loads(line)
             chunk = (obj.get("message") or {}).get("content", "")
             if chunk:

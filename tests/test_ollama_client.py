@@ -49,3 +49,13 @@ def test_chat_accepts_bytes_lines():
         return [b'{"message": {"content": "hi"}, "done": true}']
     client = OllamaClient(http_post=fake_post)
     assert list(client.chat("m", [])) == ["hi"]
+
+
+def test_chat_skips_whitespace_only_keepalive_lines():
+    def fake_post(url, payload):
+        return [
+            "   ",   # whitespace-only keep-alive — must be skipped, not parsed
+            '{"message": {"content": "ok"}, "done": true}',
+        ]
+    client = OllamaClient(http_post=fake_post)
+    assert list(client.chat("m", [])) == ["ok"]   # no JSONDecodeError
