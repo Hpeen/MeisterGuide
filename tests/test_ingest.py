@@ -54,4 +54,4 @@ def test_run_ingest_stops_when_cancelled(tmp_path):
     ]
     run_ingest(FakeClient(batches), arts, state, conn, should_cancel=lambda: True)
     assert arts.count() == 0                 # cancelled before first batch committed
-    assert state.load().continue_token != None or arts.count() == 0
+    assert state.load().continue_token is None  # resume position left untouched
