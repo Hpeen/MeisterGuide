@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt, QSettings, QPoint, QRect
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QComboBox,
+    QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
 import sys
@@ -19,7 +20,7 @@ _DEFAULT_RECT = QRect(200, 200, 460, 620)
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, settings: QSettings, games=None):
+    def __init__(self, settings: QSettings, games=None, articles_repo=None, db_path=None):
         super().__init__()
         self._settings = settings
         self._drag_offset = None
@@ -28,6 +29,10 @@ class OverlayWindow(QWidget):
         # HWND of a fullscreen/always-on-top game we temporarily demoted so the
         # overlay can sit above it; restored when the overlay hides.
         self._demoted_hwnd = None
+        self._articles_repo = articles_repo
+        self._db_path = db_path
+        self._ingest_thread = None
+        self._ingest_worker = None
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -102,12 +107,55 @@ class OverlayWindow(QWidget):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
-        for name in ("Chat", "Guides", "Settings"):
-            page = QLabel(f"{name} — coming in a later phase")
-            page.setAlignment(Qt.AlignCenter)
-            page.setContentsMargins(16, 16, 16, 16)
-            tabs.addTab(page, name)
+        chat = QLabel("Chat — coming in a later phase")
+        chat.setAlignment(Qt.AlignCenter)
+        chat.setContentsMargins(16, 16, 16, 16)
+        tabs.addTab(chat, "Chat")
+        tabs.addTab(self._build_guides_tab(), "Guides")
+        settings = QLabel("Settings — coming in a later phase")
+        settings.setAlignment(Qt.AlignCenter)
+        settings.setContentsMargins(16, 16, 16, 16)
+        tabs.addTab(settings, "Settings")
         return tabs
+
+    def _build_guides_tab(self) -> QWidget:
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(10, 10, 10, 10)
+        col.setSpacing(8)
+
+        self.guides_search = QLineEdit()
+        self.guides_search.setPlaceholderText("Search guides…")
+        self.guides_search.textChanged.connect(self._on_search)
+        col.addWidget(self.guides_search)
+
+        split = QSplitter(Qt.Horizontal)
+        self.guides_results = QListWidget()
+        self.guides_results.itemClicked.connect(self._on_result_clicked)
+        split.addWidget(self.guides_results)
+
+        self.guides_detail = QTextBrowser()
+        self.guides_detail.setOpenExternalLinks(True)
+        split.addWidget(self.guides_detail)
+        split.setSizes([180, 280])
+        col.addWidget(split, 1)
+
+        bar = QHBoxLayout()
+        self.guides_update_btn = QPushButton("Update guides")
+        self.guides_update_btn.clicked.connect(self._on_update_guides)
+        bar.addWidget(self.guides_update_btn)
+        self.guides_progress = QProgressBar()
+        self.guides_progress.setVisible(False)
+        bar.addWidget(self.guides_progress, 1)
+        self.guides_status = QLabel("")
+        bar.addWidget(self.guides_status)
+        col.addLayout(bar)
+
+        self._refresh_guides_status()
+        return page
+
+    def _on_update_guides(self):
+        pass
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
@@ -130,6 +178,39 @@ class OverlayWindow(QWidget):
         close.clicked.connect(self.hide)
         lay.addWidget(close)
         return footer
+
+    # ---- guides ---------------------------------------------------------
+    def _on_search(self, text):
+        self.guides_results.clear()
+        if self._articles_repo is None or not text.strip():
+            return
+        for hit in self._articles_repo.search(text):
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, hit.pageid)
+            label = QLabel(f"<b>{hit.title}</b><br><span>{hit.excerpt_html}</span>")
+            label.setWordWrap(True)
+            label.setContentsMargins(4, 4, 4, 4)
+            self.guides_results.addItem(item)
+            item.setSizeHint(label.sizeHint())
+            self.guides_results.setItemWidget(item, label)
+
+    def _on_result_clicked(self, item):
+        if self._articles_repo is None:
+            return
+        pageid = item.data(Qt.UserRole)
+        article = self._articles_repo.get_article(pageid)
+        if article is None:
+            return
+        self.guides_detail.setPlainText(article.body)
+
+    def _refresh_guides_status(self):
+        if self._articles_repo is None:
+            self.guides_status.setText("")
+            return
+        n = self._articles_repo.count()
+        self.guides_status.setText(
+            f"{n:,} articles" if n else "No guides yet — click Update guides"
+        )
 
     # ---- game selection -------------------------------------------------
     def _populate_dropdown(self):
