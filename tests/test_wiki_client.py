@@ -89,3 +89,13 @@ def test_gives_up_after_max_retries():
     import pytest
     with pytest.raises(RuntimeError):
         list(client.iter_batches())
+
+
+def test_non_maxlag_api_error_raises():
+    def erroring_get(params):
+        return {"error": {"code": "badvalue", "info": "Unrecognized value"}}
+    client = WikiClient(http_get=erroring_get, delay=0, sleep=lambda s: None,
+                        max_retries=3)
+    import pytest
+    with pytest.raises(RuntimeError):
+        list(client.iter_batches())

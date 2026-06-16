@@ -72,10 +72,13 @@ class WikiClient:
                 self._sleep(wait)
                 wait *= 2
                 continue
-            if isinstance(data, dict) and data.get("error", {}).get("code") == "maxlag":
-                self._sleep(wait)
-                wait *= 2
-                continue
+            if isinstance(data, dict) and "error" in data:
+                code = data["error"].get("code")
+                if code == "maxlag":
+                    self._sleep(wait)
+                    wait *= 2
+                    continue
+                raise RuntimeError(f"MediaWiki API error: {data['error']}")
             return data
         raise RuntimeError(f"MediaWiki API failed after {self._max_retries} "
                            f"attempts: {last_err}")
