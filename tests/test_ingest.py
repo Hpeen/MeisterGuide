@@ -55,3 +55,27 @@ def test_run_ingest_stops_when_cancelled(tmp_path):
     run_ingest(FakeClient(batches), arts, state, conn, should_cancel=lambda: True)
     assert arts.count() == 0                 # cancelled before first batch committed
     assert state.load().continue_token is None  # resume position left untouched
+
+
+def test_run_ingest_recovers_from_stale_continue_token(tmp_path):
+    from meister_guide.scraper.wiki_client import InvalidContinueError
+    from meister_guide.scraper.ingest import ScrapeState
+    conn, arts, state = _setup(tmp_path)
+    state.save(ScrapeState(continue_token="STALE", done=7, total=2))
+
+    class StaleTokenClient:
+        def __init__(self):
+            self.tokens = []
+        def iter_batches(self, start_token=None):
+            self.tokens.append(start_token)
+            if start_token is not None:           # the stale token is rejected
+                raise InvalidContinueError("badcontinue")
+            yield ([WikiArticle(1, "A", "a", 1), WikiArticle(2, "B", "b", 1)], None)
+        def article_count(self):
+            return 2
+
+    client = StaleTokenClient()
+    run_ingest(client, arts, state, conn)
+    assert client.tokens == ["STALE", None]      # tried stale, then restarted clean
+    assert arts.count() == 2
+    assert state.load().continue_token is None

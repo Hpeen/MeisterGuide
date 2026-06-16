@@ -12,6 +12,13 @@ USER_AGENT = (
 )
 
 
+class InvalidContinueError(RuntimeError):
+    """The MediaWiki API rejected a resume (continue) token as invalid/stale.
+
+    Distinct from a generic API error so the ingest orchestrator can recover by
+    restarting enumeration from the beginning rather than failing."""
+
+
 @dataclass
 class WikiArticle:
     pageid: int
@@ -82,6 +89,8 @@ class WikiClient:
                     self._sleep(wait)
                     wait *= 2
                     continue
+                if code == "badcontinue":
+                    raise InvalidContinueError(str(data["error"]))
                 raise RuntimeError(f"MediaWiki API error: {data['error']}")
             return data
         raise RuntimeError(f"MediaWiki API failed after {self._max_retries} "

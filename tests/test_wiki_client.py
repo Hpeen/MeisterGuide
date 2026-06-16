@@ -126,3 +126,15 @@ def test_default_delay_is_zero():
     # Politeness is enforced by maxlag, not a fixed per-request sleep; a 1s
     # default delay across ~16.7k single-article requests added hours.
     assert WikiClient(http_get=lambda p: {}).__dict__["_delay"] == 0
+
+
+def test_badcontinue_raises_invalid_continue_error():
+    # A stale/invalid resume token must be distinguishable from a generic API
+    # error so the orchestrator can recover by restarting.
+    from meister_guide.scraper.wiki_client import InvalidContinueError
+    def fake_get(params):
+        return {"error": {"code": "badcontinue", "info": "Invalid continue param."}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    import pytest
+    with pytest.raises(InvalidContinueError):
+        list(client.iter_batches())

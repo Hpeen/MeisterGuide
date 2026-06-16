@@ -187,7 +187,13 @@ class OverlayWindow(QWidget):
 
     def _on_ingest_error(self, message):
         self._teardown_ingest()
-        self.guides_status.setText("Update needs an internet connection.")
+        # Surface the real reason (truncated) instead of always blaming the
+        # network — a generic message once hid a stale-resume-token bug.
+        detail = (message or "unknown error").strip().splitlines()[0]
+        if len(detail) > 160:
+            detail = detail[:157] + "…"
+        self.guides_status.setText(f"Update failed: {detail}")
+        self.guides_status.setToolTip(message or "")
 
     def _teardown_ingest(self):
         self.guides_progress.setVisible(False)
