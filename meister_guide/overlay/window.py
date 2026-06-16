@@ -59,6 +59,7 @@ class OverlayWindow(QWidget):
         col.setSpacing(0)
 
         col.addWidget(self._build_header())
+        col.addWidget(self._build_disclaimer())
         col.addWidget(self._build_tabs(), 1)
         col.addWidget(self._build_footer())
 
@@ -86,6 +87,18 @@ class OverlayWindow(QWidget):
 
         self._header = header
         return header
+
+    def _build_disclaimer(self) -> QWidget:
+        # The overlay can only sit above games run in windowed / borderless mode;
+        # exclusive fullscreen (e.g. Minecraft's F11) renders past it.
+        bar = QLabel(
+            "Tip: run your game in windowed or borderless mode so the overlay "
+            "can show on top — exclusive fullscreen will cover it."
+        )
+        bar.setObjectName("Disclaimer")
+        bar.setWordWrap(True)
+        bar.setContentsMargins(12, 6, 12, 6)
+        return bar
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
