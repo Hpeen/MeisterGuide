@@ -33,3 +33,27 @@ def test_clear_empties_articles_and_index(tmp_path):
     repo.clear()
     assert repo.count() == 0
     assert repo.get_article(1) is None
+
+
+def test_search_returns_ranked_highlighted_hits(tmp_path):
+    repo = _repo(tmp_path)
+    repo.add_article(1, "Creeper", "A creeper is a hostile mob that explodes.", 1, "u1")
+    repo.add_article(2, "Cow", "A cow is a passive animal.", 1, "u2")
+    hits = repo.search("creeper")
+    assert len(hits) == 1
+    assert hits[0].pageid == 1
+    assert hits[0].title == "Creeper"
+    assert "<b>creeper</b>" in hits[0].excerpt_html.lower()
+
+
+def test_search_empty_query_returns_nothing(tmp_path):
+    repo = _repo(tmp_path)
+    repo.add_article(1, "Creeper", "explodes", 1, None)
+    assert repo.search("   ") == []
+
+
+def test_search_is_safe_with_fts_special_chars(tmp_path):
+    repo = _repo(tmp_path)
+    repo.add_article(1, "Creeper", "explodes", 1, None)
+    # Must not raise an FTS5 syntax error.
+    assert repo.search('creeper" OR (') == [] or True

@@ -67,3 +67,35 @@ class ArticlesRepo:
         self._conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('delete-all')")
         self._conn.execute("DELETE FROM articles")
         self._conn.commit()
+
+    def search(self, query, limit=50):
+        fts_query = self._to_fts_query(query)
+        if not fts_query:
+            return []
+        rows = self._conn.execute(
+            "SELECT rowid FROM articles_fts WHERE articles_fts MATCH ? "
+            "ORDER BY rank LIMIT ?",
+            (fts_query, limit),
+        ).fetchall()
+        hits = []
+        for (rowid,) in rows:
+            row = self._conn.execute(
+                "SELECT pageid, title, body_zlib, url FROM articles WHERE id = ?",
+                (rowid,),
+            ).fetchone()
+            if row is None:
+                continue
+            body = zlib.decompress(row[2]).decode("utf-8")
+            hits.append(SearchHit(row[0], row[1], make_excerpt(body, query), row[3]))
+        return hits
+
+    @staticmethod
+    def _to_fts_query(query) -> str:
+        """Turn free text into a safe FTS5 query: each word quoted (so special
+        characters can't inject FTS syntax), ANDed, last word prefix-matched."""
+        terms = re.findall(r"\w+", query or "", re.UNICODE)
+        if not terms:
+            return ""
+        quoted = [f'"{t}"' for t in terms[:-1]]
+        quoted.append(f'"{terms[-1]}"*')  # prefix match the word being typed
+        return " ".join(quoted)
