@@ -52,3 +52,11 @@ def test_error_shows_message_and_persists_partial(tmp_path):
     assert "stream broke" in html
     msgs = chat.get_messages(chat.list_sessions()[0].id)
     assert msgs[-1].role == "assistant"
+
+
+def test_new_chat_does_not_create_empty_session(tmp_path):
+    w, chat = _window(tmp_path)
+    w._on_new_chat()
+    assert chat.list_sessions() == []          # nothing persisted until a message
+    w._begin_exchange("first question", [])
+    assert len(chat.list_sessions()) == 1      # session created lazily on send

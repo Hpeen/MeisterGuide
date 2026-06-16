@@ -13,11 +13,17 @@ class ChatStreamWorker(QObject):
         self._client = client
         self._model = model
         self._messages = messages
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
 
     def run(self):
         parts = []
         try:
             for chunk in self._client.chat(self._model, self._messages):
+                if self._cancel:
+                    break
                 parts.append(chunk)
                 self.token.emit(chunk)
         except Exception as err:

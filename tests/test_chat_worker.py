@@ -33,3 +33,17 @@ def test_worker_emits_error_not_finished_on_failure():
     worker.run()
     assert errors and "stream broke" in errors[0]
     assert done == []
+
+
+def test_worker_stops_streaming_when_cancelled():
+    QApplication.instance() or QApplication([])
+    worker = ChatStreamWorker(FakeClient(["a", "b", "c"]), "m", [])
+    tokens, finished = [], []
+    def on_tok(t):
+        tokens.append(t)
+        worker.cancel()                 # cancel after the first token
+    worker.token.connect(on_tok)
+    worker.finished.connect(lambda f: finished.append(f))
+    worker.run()
+    assert tokens == ["a"]              # stopped after first
+    assert finished == ["a"]            # finished with the partial text

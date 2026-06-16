@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
 )
 
 import html
-import html as _html
 import sys
 
 from meister_guide.ai.passage import relevant_passage
@@ -127,7 +126,7 @@ class OverlayWindow(QWidget):
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
         tabs.addTab(self._build_chat_tab(), "Chat")
-        tabs.addTab(self._build_guides_tab(), "Guides")
+        self._guides_index = tabs.addTab(self._build_guides_tab(), "Guides")
         settings = QLabel("Settings — coming in a later phase")
         settings.setAlignment(Qt.AlignCenter)
         settings.setContentsMargins(16, 16, 16, 16)
@@ -288,7 +287,7 @@ class OverlayWindow(QWidget):
     def _teardown_chat_thread(self):
         if self._chat_thread is not None:
             self._chat_thread.quit()
-            self._chat_thread.wait()
+            self._chat_thread.wait(5000)
         self._chat_thread = None
         self._chat_worker = None
         self.chat_input.setEnabled(True)
@@ -298,11 +297,11 @@ class OverlayWindow(QWidget):
         parts = []
         for msg in self._chat_view:
             who = "You" if msg["role"] == "user" else "Meister"
-            body = _html.escape(msg["text"]).replace("\n", "<br>")
+            body = html.escape(msg["text"]).replace("\n", "<br>")
             parts.append(f"<p><b>{who}:</b> {body}</p>")
             if msg["sources"]:
                 links = " · ".join(
-                    f'<a href="guide:{pid}">{_html.escape(title)}</a>'
+                    f'<a href="guide:{pid}">{html.escape(title)}</a>'
                     for pid, title in msg["sources"]
                 )
                 parts.append(f'<p style="color:#9a7b53">Sources: {links}</p>')
@@ -331,9 +330,6 @@ class OverlayWindow(QWidget):
         self._chat_session = None
         self._chat_view = []
         self._render_chat()
-        if self._chat_repo is not None:
-            self._chat_session = self._chat_repo.create_session()
-            self._refresh_history()
 
     def _on_load_session(self, index):
         session_id = self.chat_history.itemData(index)
@@ -591,6 +587,8 @@ class OverlayWindow(QWidget):
         # buttons — all routes that hide the overlay restore the game.
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
+        if self._chat_worker is not None:
+            self._chat_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
