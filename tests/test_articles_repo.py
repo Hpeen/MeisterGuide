@@ -57,3 +57,18 @@ def test_search_is_safe_with_fts_special_chars(tmp_path):
     repo.add_article(1, "Creeper", "explodes", 1, None)
     # Must not raise an FTS5 syntax error.
     assert repo.search('creeper" OR (') == [] or True
+
+
+def test_scrape_state_defaults_then_persists(tmp_path):
+    from meister_guide.db.articles import ScrapeStateRepo, ScrapeState
+    conn = connect(tmp_path / "s.db")
+    init_db(conn)
+    repo = ScrapeStateRepo(conn)
+    st = repo.load()
+    assert st.continue_token is None and st.done == 0 and st.total is None
+    repo.save(ScrapeState(continue_token='{"gapcontinue":"Boat"}', done=40, total=16689))
+    again = repo.load()
+    assert again.continue_token == '{"gapcontinue":"Boat"}'
+    assert again.done == 40 and again.total == 16689
+    repo.save(ScrapeState(continue_token=None, done=16689, total=16689))
+    assert repo.load().continue_token is None

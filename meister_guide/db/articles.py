@@ -99,3 +99,37 @@ class ArticlesRepo:
         quoted = [f'"{t}"' for t in terms[:-1]]
         quoted.append(f'"{terms[-1]}"*')  # prefix match the word being typed
         return " ".join(quoted)
+
+
+@dataclass
+class ScrapeState:
+    continue_token: Optional[str]
+    done: int
+    total: Optional[int]
+
+
+class ScrapeStateRepo:
+    """Single-row (id=1) ingest progress, so an interrupted download resumes."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def load(self) -> ScrapeState:
+        row = self._conn.execute(
+            "SELECT continue_token, done, total FROM scrape_state WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return ScrapeState(None, 0, None)
+        return ScrapeState(row[0], row[1], row[2])
+
+    def save(self, state: ScrapeState, commit=True) -> None:
+        self._conn.execute(
+            "INSERT INTO scrape_state (id, continue_token, done, total, updated_at) "
+            "VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            "continue_token=excluded.continue_token, done=excluded.done, "
+            "total=excluded.total, updated_at=CURRENT_TIMESTAMP",
+            (state.continue_token, state.done, state.total),
+        )
+        if commit:
+            self._conn.commit()
