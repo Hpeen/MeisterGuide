@@ -35,6 +35,7 @@ class OverlayWindow(QWidget):
         self._db_path = db_path
         self._ingest_thread = None
         self._ingest_worker = None
+        self._last_progress_done = None  # to detect a stalled (catching-up) count
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -163,6 +164,7 @@ class OverlayWindow(QWidget):
         self.guides_progress.setVisible(True)
         self.guides_progress.setRange(0, 0)  # indeterminate until first progress
         self.guides_status.setText("Starting…")
+        self._last_progress_done = None
 
         self._ingest_thread = QThread(self)
         self._ingest_worker = IngestWorker(str(self._db_path))
@@ -177,7 +179,16 @@ class OverlayWindow(QWidget):
         if total > 0:
             self.guides_progress.setRange(0, total)
             self.guides_progress.setValue(done)
-        self.guides_status.setText(f"{done:,}/{total:,}" if total else f"{done:,}")
+        # When the stored count stalls (same as last update) mid-run, the ingest
+        # is re-walking already-saved articles after a resume — show that rather
+        # than a frozen-looking counter.
+        if done == self._last_progress_done and 0 < done < (total or 0):
+            self.guides_status.setText(f"Catching up… ({done:,} saved)")
+        elif total:
+            self.guides_status.setText(f"{done:,}/{total:,}")
+        else:
+            self.guides_status.setText(f"{done:,}")
+        self._last_progress_done = done
 
     def _on_ingest_done(self):
         self._teardown_ingest()
