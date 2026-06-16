@@ -65,12 +65,23 @@ Each unit has one job, a clear interface, and is testable in isolation.
   assumed triggers; documented here because the body is compressed.)
 
 ### 3. `meister_guide/db/articles.py` — `ArticlesRepo`
-- `upsert_article(pageid, title, text, revid, url)`:
-  - `INSERT ... ON CONFLICT(pageid) DO UPDATE` into `articles` storing
-    `zlib.compress(text.encode())`.
-  - keep `articles_fts` in sync: on insert add `(rowid=id, title, body=text)`;
-    on update use the FTS5 `'delete'` command for the old row then re-insert.
-  - whole thing in one transaction → idempotent re-runs.
+- `add_article(pageid, title, text, revid, url, commit=True) -> bool`:
+  - `INSERT OR IGNORE` into `articles` storing `zlib.compress(text.encode())`;
+    returns `False` (skip) if the `pageid` is already stored, `True` on insert.
+  - on insert, also add `(rowid=articles.id, title, body=text)` to `articles_fts`,
+    in the same transaction.
+  - **Add-if-absent, not update-in-place.** A re-run/resume therefore fills gaps
+    and never duplicates, so it is safely idempotent — but it does **not refresh**
+    an article whose wiki content changed upstream. That matches the beta scope:
+    "Update guides" completes/resumes the one-time mirror; incremental
+    "what-changed" refresh is out of scope (see below). A full content refresh is
+    `clear()` followed by a fresh ingest.
+  - (This replaces an earlier `upsert_article`/`ON CONFLICT DO UPDATE` sketch: an
+    update path would need the FTS5 `'delete'` command with the old row's
+    decompressed text, which is needless complexity for a one-time mirror.)
+- `get_article(pageid) -> Article | None`, `count() -> int`, `clear()`
+  (empties `articles` + the contentless index via `'delete-all'`; the primitive
+  a future full-refresh/rebuild would call).
 - `search(query, limit=50) -> list[SearchHit]`:
   - `SELECT rowid, bm25(articles_fts) FROM articles_fts WHERE articles_fts
     MATCH ? ORDER BY rank LIMIT ?`.
