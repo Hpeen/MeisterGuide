@@ -8,6 +8,9 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from meister_guide.theme.stylesheet import build_stylesheet
 from meister_guide.overlay.window import OverlayWindow
 from meister_guide.input.hotkey import GlobalHotkey
+from meister_guide.db.database import default_db_path, connect, init_db
+from meister_guide.db.games import GamesRepo
+from meister_guide.detector.detector import GameDetector
 
 ORG = "MeisterGuide"
 APP = "MeisterGuide"
@@ -33,7 +36,17 @@ def main() -> int:
     app.setStyleSheet(build_stylesheet())
 
     settings = QSettings(ORG, APP)
-    overlay = OverlayWindow(settings)
+
+    conn = connect(default_db_path())
+    init_db(conn)
+    games_repo = GamesRepo(conn)
+    games_repo.seed_defaults()
+    games_repo.reconcile_builtin_games()  # upgrade a stale Minecraft process list
+
+    overlay = OverlayWindow(settings, games_repo.list_games())
+
+    detector = GameDetector(games_provider=games_repo.list_games)
+    detector.detected.connect(overlay.set_detected_game)
 
     # Tray
     tray = QSystemTrayIcon(_make_tray_icon())
@@ -64,7 +77,10 @@ def main() -> int:
             QSystemTrayIcon.Warning,
         )
 
+    detector.start()
+
     app.aboutToQuit.connect(hotkey.unregister)
+    app.aboutToQuit.connect(detector.stop)
     app.aboutToQuit.connect(settings.sync)  # flush geometry once on quit
     return app.exec()
 

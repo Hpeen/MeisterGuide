@@ -12,6 +12,17 @@ A rustic gaming companion overlay with offline guides and a local AI assistant
 ## Hotkey
 `Alt + Insert` toggles the overlay (rebindable in Settings, later phase).
 
+## Showing the overlay over a game
+Run your game in **windowed** or **borderless windowed** mode (not exclusive /
+"Fullscreen"). The overlay then appears on top, and the game pauses behind it —
+press `Alt + Insert` again to dismiss it and return to the game.
+
+True exclusive fullscreen is not supported: that mode renders straight to the
+GPU and minimizes itself the moment it loses focus, so any normal window (ours
+included) can't sit over it. For **Minecraft Java**, fullscreen (F11) is GLFW
+exclusive-style — use **Windowed** mode, or add a borderless-window mod (e.g.
+Sodium/OptiFine borderless) for a seamless full-screen feel.
+
 ## AI (later phase)
 Meister uses [Ollama](https://ollama.com) running locally at
 `http://localhost:11434`. Install Ollama and `ollama pull llama3`.

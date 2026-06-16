@@ -32,6 +32,12 @@ def build_stylesheet() -> str:
     #GameIndicator {{
         color: {p['text_muted']};
     }}
+    #Disclaimer {{
+        background-color: {p['surface_raised']};
+        color: {p['text_muted']};
+        font-size: 11px;
+        border-bottom: 1px solid {p['border']};
+    }}
     QPushButton {{
         background-color: {p['surface_raised']};
         border: 1px solid {p['accent_primary']};
