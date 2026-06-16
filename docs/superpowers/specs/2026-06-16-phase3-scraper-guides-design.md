@@ -28,12 +28,22 @@ app fully offline thereafter.
   Total DB ≈ ~80 MB including the FTS index.
 - **Images:** none (text-only) for the beta.
 - **Trigger:** a manual "Update guides" button, not auto-ingest on launch
-  (~10–15 min first run). Existing data stays searchable offline meanwhile.
+  (~40 min first run). Existing data stays searchable offline meanwhile.
 
 ## Realistic envelope
 
-~835 requests, ~10–15 min one-time download, ~80 MB DB. (The earlier
-"hours / multiple GB" fear was tied to the rejected HTML-scrape + image storage.)
+~16,700 requests, **~40 min** one-time download, ~80 MB DB.
+
+> **Correction (measured post-implementation):** the initial estimate of "~835
+> requests / ~12 min" assumed `exlimit=max` returns 20 full extracts per request.
+> It does not — MediaWiki's TextExtracts caps `exlimit` at **1** for full-page
+> extracts (20 only applies with `exintro`). So full-text ingest is ~1 article
+> per request → ~16,700 serial requests. With `gaplimit` aligned to 20 (avoiding
+> wasted page metadata) and `maxlag` for politeness instead of a fixed delay,
+> live throughput is ~7 articles/sec → ~40 min. Going faster (concurrency,
+> wikitext, or intro-only) was considered and declined in favour of a polite,
+> full-text, resumable serial download. The unit tests use a fake HTTP layer, so
+> they did not surface the real per-request yield — only a live measurement did.
 
 ## Components
 
