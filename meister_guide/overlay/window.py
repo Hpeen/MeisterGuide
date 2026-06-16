@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
+import html
 import sys
 
 from meister_guide.config.geometry import save_geometry, restore_geometry
@@ -227,7 +228,9 @@ class OverlayWindow(QWidget):
         for hit in self._articles_repo.search(text):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, hit.pageid)
-            label = QLabel(f"<b>{hit.title}</b><br><span>{hit.excerpt_html}</span>")
+            label = QLabel(
+                f"<b>{html.escape(hit.title)}</b><br><span>{hit.excerpt_html}</span>"
+            )
             label.setWordWrap(True)
             label.setContentsMargins(4, 4, 4, 4)
             self.guides_results.addItem(item)
