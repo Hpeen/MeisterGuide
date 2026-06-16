@@ -44,3 +44,23 @@ class OllamaClient:
     def list_models(self):
         data = self._http_get(self._base + "/api/tags")
         return [m["name"] for m in data.get("models", [])]
+
+    def chat(self, model, messages):
+        """Stream a chat completion, yielding content chunks. Stops at the line
+        whose `done` is true. `_http_post` returns an iterable of NDJSON lines
+        (str or bytes)."""
+        lines = self._http_post(
+            self._base + "/api/chat",
+            {"model": model, "messages": messages, "stream": True},
+        )
+        for line in lines:
+            if not line:
+                continue
+            if isinstance(line, bytes):
+                line = line.decode("utf-8")
+            obj = json.loads(line)
+            chunk = (obj.get("message") or {}).get("content", "")
+            if chunk:
+                yield chunk
+            if obj.get("done"):
+                break

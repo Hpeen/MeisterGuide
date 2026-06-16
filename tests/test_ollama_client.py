@@ -22,3 +22,30 @@ def test_pick_model_prefers_llama3_then_first_then_none():
     assert pick_model(["mistral", "llama3:latest"]) == "llama3:latest"
     assert pick_model(["mistral", "phi"]) == "mistral"
     assert pick_model([]) is None
+
+
+def test_chat_streams_content_chunks_until_done():
+    sent = {}
+    def fake_post(url, payload):
+        sent["url"] = url
+        sent["payload"] = payload
+        return [
+            '{"message": {"role": "assistant", "content": "Hel"}, "done": false}',
+            '{"message": {"role": "assistant", "content": "lo"}, "done": false}',
+            '',  # keep-alive / blank line, must be skipped
+            '{"message": {"role": "assistant", "content": "!"}, "done": true}',
+            '{"message": {"role": "assistant", "content": "IGNORED"}, "done": false}',
+        ]
+    client = OllamaClient(http_post=fake_post)
+    chunks = list(client.chat("llama3", [{"role": "user", "content": "hi"}]))
+    assert "".join(chunks) == "Hello!"        # stops at done, ignores trailing
+    assert sent["url"].endswith("/api/chat")
+    assert sent["payload"]["model"] == "llama3"
+    assert sent["payload"]["stream"] is True
+
+
+def test_chat_accepts_bytes_lines():
+    def fake_post(url, payload):
+        return [b'{"message": {"content": "hi"}, "done": true}']
+    client = OllamaClient(http_post=fake_post)
+    assert list(client.chat("m", [])) == ["hi"]
