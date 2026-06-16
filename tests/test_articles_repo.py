@@ -55,8 +55,8 @@ def test_search_empty_query_returns_nothing(tmp_path):
 def test_search_is_safe_with_fts_special_chars(tmp_path):
     repo = _repo(tmp_path)
     repo.add_article(1, "Creeper", "explodes", 1, None)
-    # Must not raise an FTS5 syntax error.
-    assert repo.search('creeper" OR (') == [] or True
+    # Must not raise an FTS5 syntax error; returns a (possibly empty) list.
+    assert isinstance(repo.search('creeper" OR ('), list)
 
 
 def test_scrape_state_defaults_then_persists(tmp_path):

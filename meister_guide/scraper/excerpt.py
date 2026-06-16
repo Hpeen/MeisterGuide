@@ -29,11 +29,9 @@ def make_excerpt(body: str, query: str, width: int = 240) -> str:
     suffix = "…" if end < len(body) else ""
 
     escaped = html.escape(snippet)
-    for term in sorted(set(terms), key=len, reverse=True):
-        escaped = re.sub(
-            "(" + re.escape(html.escape(term)) + ")",
-            r"<b>\1</b>",
-            escaped,
-            flags=re.IGNORECASE,
-        )
+    unique_terms = sorted(set(terms), key=len, reverse=True)
+    if unique_terms:
+        pattern = "|".join(re.escape(html.escape(t)) for t in unique_terms)
+        escaped = re.sub("(" + pattern + ")", r"<b>\1</b>", escaped,
+                         flags=re.IGNORECASE)
     return f"{prefix}{escaped}{suffix}"

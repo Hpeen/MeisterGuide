@@ -24,3 +24,10 @@ def test_escapes_html_in_body():
     out = make_excerpt("danger <script> creeper", "creeper")
     assert "<script>" not in out
     assert "&lt;script&gt;" in out
+
+
+def test_overlapping_terms_do_not_nest_bold_tags():
+    out = make_excerpt("creepers creep slowly", "creep creepers")
+    assert "<b><b>" not in out
+    assert "</b></b>" not in out
+    assert "<b>creepers</b>" in out
