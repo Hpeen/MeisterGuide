@@ -1,5 +1,5 @@
 """The Meister Guide overlay window (Phase 1 shell)."""
-from PySide6.QtCore import Qt, QSettings, QPoint, QRect
+from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QComboBox,
@@ -15,6 +15,7 @@ from meister_guide.overlay.win32_topmost import (
     is_window_topmost,
     set_window_topmost,
 )
+from meister_guide.scraper.worker import IngestWorker
 
 _DEFAULT_RECT = QRect(200, 200, 460, 620)
 
@@ -155,7 +156,46 @@ class OverlayWindow(QWidget):
         return page
 
     def _on_update_guides(self):
-        pass
+        if self._db_path is None or self._ingest_thread is not None:
+            return
+        self.guides_update_btn.setEnabled(False)
+        self.guides_progress.setVisible(True)
+        self.guides_progress.setRange(0, 0)  # indeterminate until first progress
+        self.guides_status.setText("Starting…")
+
+        self._ingest_thread = QThread(self)
+        self._ingest_worker = IngestWorker(str(self._db_path))
+        self._ingest_worker.moveToThread(self._ingest_thread)
+        self._ingest_thread.started.connect(self._ingest_worker.run)
+        self._ingest_worker.progress.connect(self._on_ingest_progress)
+        self._ingest_worker.finished.connect(self._on_ingest_done)
+        self._ingest_worker.error.connect(self._on_ingest_error)
+        self._ingest_thread.start()
+
+    def _on_ingest_progress(self, done, total):
+        if total > 0:
+            self.guides_progress.setRange(0, total)
+            self.guides_progress.setValue(done)
+        self.guides_status.setText(f"{done:,}/{total:,}" if total else f"{done:,}")
+
+    def _on_ingest_done(self):
+        self._teardown_ingest()
+        self._refresh_guides_status()
+        if self.guides_search.text().strip():
+            self._on_search(self.guides_search.text())
+
+    def _on_ingest_error(self, message):
+        self._teardown_ingest()
+        self.guides_status.setText("Update needs an internet connection.")
+
+    def _teardown_ingest(self):
+        self.guides_progress.setVisible(False)
+        self.guides_update_btn.setEnabled(True)
+        if self._ingest_thread is not None:
+            self._ingest_thread.quit()
+            self._ingest_thread.wait()
+        self._ingest_thread = None
+        self._ingest_worker = None
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
@@ -304,6 +344,8 @@ class OverlayWindow(QWidget):
     def hideEvent(self, event):
         # Covers Alt+Insert, the tray toggle, and the footer minimize/close
         # buttons — all routes that hide the overlay restore the game.
+        if self._ingest_worker is not None:
+            self._ingest_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
