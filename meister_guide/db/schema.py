@@ -45,3 +45,31 @@ CORE_TABLES = [
     )
     """,
 ]
+
+# Phase 3: article mirror + full-text search.
+# articles_fts is CONTENTLESS (content='') so it stores only the index, not the
+# text — the readable body lives zlib-compressed in articles.body_zlib. There are
+# no FTS triggers: the stored body is compressed, so ArticlesRepo keeps articles
+# and articles_fts in sync explicitly inside one transaction.
+PHASE3_TABLES = [
+    """
+    CREATE TABLE IF NOT EXISTS articles (
+        id INTEGER PRIMARY KEY,
+        pageid INTEGER UNIQUE NOT NULL,
+        title TEXT NOT NULL,
+        body_zlib BLOB NOT NULL,
+        revid INTEGER,
+        url TEXT
+    )
+    """,
+    "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(title, body, content='')",
+    """
+    CREATE TABLE IF NOT EXISTS scrape_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        continue_token TEXT,
+        done INTEGER NOT NULL DEFAULT 0,
+        total INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+]

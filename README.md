@@ -23,6 +23,13 @@ included) can't sit over it. For **Minecraft Java**, fullscreen (F11) is GLFW
 exclusive-style — use **Windowed** mode, or add a borderless-window mod (e.g.
 Sodium/OptiFine borderless) for a seamless full-screen feel.
 
+## Guides (offline wiki)
+Open the Guides tab and click **Update guides** once to download minecraft.wiki
+article text into a local database (~10-15 min, ~80 MB). After that, search works
+fully offline. The download uses the MediaWiki API politely (identified
+User-Agent, rate-limited, `maxlag`, resumable) and stores only plain text — no
+images.
+
 ## AI (later phase)
 Meister uses [Ollama](https://ollama.com) running locally at
 `http://localhost:11434`. Install Ollama and `ollama pull llama3`.
