@@ -21,7 +21,7 @@ class WikiArticle:
 
 
 class WikiClient:
-    def __init__(self, api_url=DEFAULT_API, http_get=None, delay=1.0,
+    def __init__(self, api_url=DEFAULT_API, http_get=None, delay=0.0,
                  sleep=time.sleep, max_retries=5, backoff=1.0):
         self._api = api_url
         self._http_get = http_get or self._default_get
@@ -38,9 +38,13 @@ class WikiClient:
         return resp.json()
 
     def _params(self, continue_token):
+        # gaplimit is aligned to the realistic extract yield: full-text extracts
+        # return only 1 per request (TextExtracts caps exlimit=1 without
+        # exintro), so a large gaplimit (e.g. "max"=500) just ships hundreds of
+        # unused page-metadata entries per request. Politeness is via maxlag.
         params = {
             "action": "query", "format": "json",
-            "generator": "allpages", "gapnamespace": 0, "gaplimit": "max",
+            "generator": "allpages", "gapnamespace": 0, "gaplimit": 20,
             "prop": "extracts", "explaintext": 1, "exlimit": "max",
             "maxlag": 5,
         }

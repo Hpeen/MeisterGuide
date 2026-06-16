@@ -107,3 +107,22 @@ def test_article_count_reads_statistics():
         return {"query": {"statistics": {"articles": 16689, "pages": 296047}}}
     client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
     assert client.article_count() == 16689
+
+
+def test_request_gaplimit_is_aligned_to_extract_limit():
+    # Full-text extracts return only 1 per request (TextExtracts caps exlimit=1
+    # without exintro), so a large gaplimit just wastes metadata bandwidth.
+    # gaplimit must be a small aligned value, not "max"/500.
+    captured = []
+    def fake_get(params):
+        captured.append(dict(params))
+        return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    next(client.iter_batches())
+    assert captured[0]["gaplimit"] == 20
+
+
+def test_default_delay_is_zero():
+    # Politeness is enforced by maxlag, not a fixed per-request sleep; a 1s
+    # default delay across ~16.7k single-article requests added hours.
+    assert WikiClient(http_get=lambda p: {}).__dict__["_delay"] == 0

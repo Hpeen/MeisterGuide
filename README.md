@@ -25,10 +25,11 @@ Sodium/OptiFine borderless) for a seamless full-screen feel.
 
 ## Guides (offline wiki)
 Open the Guides tab and click **Update guides** once to download minecraft.wiki
-article text into a local database (~10-15 min, ~80 MB). After that, search works
+article text into a local database (~40 min, ~80 MB). After that, search works
 fully offline. The download uses the MediaWiki API politely (identified
-User-Agent, rate-limited, `maxlag`, resumable) and stores only plain text — no
-images.
+User-Agent, `maxlag`-guarded, resumable) and stores only plain text — no images.
+It runs in the background with a progress bar and resumes if interrupted, so the
+one-time wait is unattended.
 
 ## AI (later phase)
 Meister uses [Ollama](https://ollama.com) running locally at
