@@ -11,7 +11,7 @@ import sys
 
 from meister_guide.ai.passage import relevant_passage
 from meister_guide.ai.prompt import build_messages
-from meister_guide.ai.ollama_client import OllamaUnavailable, pick_model
+from meister_guide.ai.ollama_client import OllamaUnavailable, pick_model, pick_best_model
 from meister_guide.ai.worker import ChatStreamWorker
 
 from meister_guide.config.geometry import save_geometry, restore_geometry
@@ -181,12 +181,12 @@ class OverlayWindow(QWidget):
             self._set_chat_enabled(False, "AI chat is unavailable.")
             return
         try:
-            models = self._ollama.list_models()
+            models = self._ollama.list_model_info()
         except OllamaUnavailable:
             self._set_chat_enabled(False,
                 "Meister needs Ollama running at localhost:11434.")
             return
-        self._model = pick_model(models)
+        self._model = pick_best_model(models)
         if self._model is None:
             self._set_chat_enabled(False,
                 "No Ollama model installed. Run: ollama pull llama3")
@@ -240,7 +240,7 @@ class OverlayWindow(QWidget):
 
         sources, passages = [], []
         if self._articles_repo is not None:
-            for hit in self._articles_repo.search(question, limit=3):
+            for hit in self._articles_repo.search_ranked(question, limit=3):
                 article = self._articles_repo.get_article(hit.pageid)
                 if article is None:
                     continue
