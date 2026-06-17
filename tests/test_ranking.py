@@ -41,3 +41,38 @@ def test_all_terms_present_scores_high():
 
 def test_no_terms_scores_zero():
     assert title_boost("Creeper", []) == 0.0
+
+
+# rerank tests (Task 4)
+from collections import namedtuple
+from meister_guide.ai.ranking import rerank
+
+Hit = namedtuple("Hit", "pageid title excerpt_html url")
+
+
+def _hit(title):
+    return Hit(1, title, "", None)
+
+
+def test_rerank_surfaces_creeper_over_noise():
+    # (bm25 rank, hit). More-negative rank = better keyword score in FTS5.
+    # The changelogs even have *better* bm25 here, but must still lose.
+    candidates = [
+        (-9.0, _hit("Bedrock Edition beta 1.16.0.57")),
+        (-8.5, _hit("Creeper (disambiguation)")),
+        (-3.0, _hit("Creeper")),
+        (-2.0, _hit("Creeper Head")),
+    ]
+    ranked = rerank(candidates, ["creeper"], limit=3)
+    assert ranked[0].title == "Creeper"
+    assert "(disambiguation)" not in ranked[0].title
+    assert all("Edition" not in h.title for h in ranked[:1])
+
+
+def test_rerank_respects_limit():
+    candidates = [(-1.0, _hit(f"Article {i}")) for i in range(10)]
+    assert len(rerank(candidates, ["article"], limit=3)) == 3
+
+
+def test_rerank_empty_returns_empty():
+    assert rerank([], ["creeper"], limit=3) == []

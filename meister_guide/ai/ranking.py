@@ -39,3 +39,20 @@ def title_boost(title, terms):
     if title_words == set(terms):              # title IS exactly the query
         boost += 1000.0
     return boost
+
+
+def rerank(candidates, terms, limit=3):
+    """`candidates`: list of (bm25_rank, hit). bm25_rank is the SQLite FTS5
+    `rank` value (more-negative = better keyword match). Returns the best
+    `limit` hits, highest combined score first.
+
+    score = title_boost − noise_penalty + (−bm25_rank)
+    Title boost and noise penalty are on a far larger scale than the bm25 term,
+    so a strong title match or a noise page decides the order; bm25 only breaks
+    ties within the same boost/noise tier."""
+    scored = []
+    for rank, hit in candidates:
+        score = title_boost(hit.title, terms) - noise_penalty(hit.title) + (-rank)
+        scored.append((score, hit))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [hit for _, hit in scored[:limit]]
