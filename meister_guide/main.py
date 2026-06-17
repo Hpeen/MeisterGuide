@@ -11,6 +11,8 @@ from meister_guide.input.hotkey import GlobalHotkey
 from meister_guide.db.database import default_db_path, connect, init_db
 from meister_guide.db.games import GamesRepo
 from meister_guide.db.articles import ArticlesRepo
+from meister_guide.db.chat import ChatRepo
+from meister_guide.ai.ollama_client import OllamaClient
 from meister_guide.detector.detector import GameDetector
 
 ORG = "MeisterGuide"
@@ -44,10 +46,14 @@ def main() -> int:
     games_repo.seed_defaults()
     games_repo.reconcile_builtin_games()  # upgrade a stale Minecraft process list
     articles_repo = ArticlesRepo(conn)
+    chat_repo = ChatRepo(conn)
+    ollama_client = OllamaClient()
 
     overlay = OverlayWindow(settings, games_repo.list_games(),
                             articles_repo=articles_repo,
-                            db_path=default_db_path())
+                            db_path=default_db_path(),
+                            chat_repo=chat_repo,
+                            ollama_client=ollama_client)
 
     detector = GameDetector(games_provider=games_repo.list_games)
     detector.detected.connect(overlay.set_detected_game)
@@ -85,6 +91,7 @@ def main() -> int:
 
     app.aboutToQuit.connect(hotkey.unregister)
     app.aboutToQuit.connect(detector.stop)
+    app.aboutToQuit.connect(overlay.shutdown)  # stop chat/ingest threads
     app.aboutToQuit.connect(settings.sync)  # flush geometry once on quit
     return app.exec()
 

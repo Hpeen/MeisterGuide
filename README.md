@@ -31,9 +31,13 @@ User-Agent, `maxlag`-guarded, resumable) and stores only plain text — no image
 It runs in the background with a progress bar and resumes if interrupted, so the
 one-time wait is unattended.
 
-## AI (later phase)
-Meister uses [Ollama](https://ollama.com) running locally at
-`http://localhost:11434`. Install Ollama and `ollama pull llama3`.
+## Meister (AI chat)
+The Chat tab answers Minecraft questions using a local [Ollama](https://ollama.com)
+model. Install Ollama and pull a model (`ollama pull llama3`), then ask away —
+Meister retrieves the 3 most relevant offline guide passages, streams an answer,
+and lists the source guides (click one to open it in the Guides tab). If Ollama
+isn't running you'll see a prompt to start it. Chats are saved; use **New chat**
+to start fresh or the history dropdown to reopen a past conversation.
 
 ## Tests
 `pytest -q`

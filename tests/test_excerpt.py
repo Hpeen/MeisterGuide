@@ -31,3 +31,16 @@ def test_overlapping_terms_do_not_nest_bold_tags():
     assert "<b><b>" not in out
     assert "</b></b>" not in out
     assert "<b>creepers</b>" in out
+
+
+def test_window_bounds_centers_on_match():
+    from meister_guide.scraper.excerpt import window_bounds
+    body = "x" * 100 + "creeper" + "y" * 100
+    start, end = window_bounds(body, "creeper", 60)
+    assert start <= 100 < end          # the match (at index 100) is inside
+    assert end - start <= 60
+
+
+def test_window_bounds_no_match_is_leading_window():
+    from meister_guide.scraper.excerpt import window_bounds
+    assert window_bounds("alpha beta", "zzz", 5) == (0, 5)
