@@ -72,6 +72,23 @@ def test_iter_close_releases_response_even_when_consumer_stops_early():
     assert resp.closed is True
 
 
+def test_default_post_surfaces_ollama_error_body(monkeypatch):
+    import requests
+
+    class _ErrResp:
+        status_code = 500
+        text = '{"error": "model requires more system memory"}'
+        def close(self):
+            pass
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _ErrResp())
+    client = OllamaClient()  # real default path
+    with pytest.raises(OllamaUnavailable) as ei:
+        list(client.chat("llama3", [{"role": "user", "content": "hi"}]))
+    assert "model requires more system memory" in str(ei.value)
+    assert "500" in str(ei.value)
+
+
 def test_chat_skips_whitespace_only_keepalive_lines():
     def fake_post(url, payload):
         return [

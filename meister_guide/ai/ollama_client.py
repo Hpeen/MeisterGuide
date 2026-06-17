@@ -36,9 +36,20 @@ class OllamaClient:
         import requests
         try:
             resp = requests.post(url, json=payload, stream=True, timeout=300)
-            resp.raise_for_status()
         except requests.RequestException as err:
             raise OllamaUnavailable(str(err))
+        if resp.status_code >= 400:
+            # Ollama returns the real reason in the body ({"error": "..."}),
+            # e.g. "model requires more system memory" — surface it instead of
+            # the opaque "500 Server Error" raise_for_status() would give.
+            detail = (resp.text or "").strip()
+            resp.close()
+            try:
+                detail = json.loads(detail).get("error", detail)
+            except (ValueError, TypeError):
+                pass
+            raise OllamaUnavailable(
+                f"Ollama returned {resp.status_code}: {detail or 'no detail'}")
         return self._iter_close(resp)
 
     @staticmethod
