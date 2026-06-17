@@ -54,6 +54,17 @@ def test_error_shows_message_and_persists_partial(tmp_path):
     assert msgs[-1].role == "assistant"
 
 
+def test_cancelled_stream_does_not_persist_truncated_answer(tmp_path):
+    w, chat = _window(tmp_path)
+    w._begin_exchange("how do creepers work?", [])
+    w._on_chat_token("Creepers ex")
+    w._chat_cancelled = True          # e.g. overlay hidden mid-stream
+    w._on_chat_finished("Creepers ex")  # worker emits the partial text
+    msgs = chat.get_messages(chat.list_sessions()[0].id)
+    # user turn kept; truncated assistant reply not saved as a complete answer
+    assert [(m.role, m.content) for m in msgs] == [("user", "how do creepers work?")]
+
+
 def test_new_chat_does_not_create_empty_session(tmp_path):
     w, chat = _window(tmp_path)
     w._on_new_chat()

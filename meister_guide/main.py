@@ -91,6 +91,7 @@ def main() -> int:
 
     app.aboutToQuit.connect(hotkey.unregister)
     app.aboutToQuit.connect(detector.stop)
+    app.aboutToQuit.connect(overlay.shutdown)  # stop chat/ingest threads
     app.aboutToQuit.connect(settings.sync)  # flush geometry once on quit
     return app.exec()
 

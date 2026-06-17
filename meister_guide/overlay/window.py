@@ -50,6 +50,7 @@ class OverlayWindow(QWidget):
         self._chat_view = []        # list of {"role", "text", "sources"}
         self._chat_thread = None
         self._chat_worker = None
+        self._chat_cancelled = False  # stream stopped by hide/quit, not Ollama
         self._model = None
 
         self.setWindowFlags(
@@ -235,6 +236,7 @@ class OverlayWindow(QWidget):
         if not question:
             return
         self.chat_input.clear()
+        self._chat_cancelled = False
 
         sources, passages = [], []
         if self._articles_repo is not None:
@@ -268,7 +270,10 @@ class OverlayWindow(QWidget):
     def _on_chat_finished(self, full_text):
         if self._chat_view and self._chat_view[-1]["role"] == "assistant":
             self._chat_view[-1]["text"] = full_text or self._chat_view[-1]["text"]
-        if self._chat_repo is not None and self._chat_session is not None:
+        # A cancelled stream yields a truncated answer; don't persist it as if
+        # it were the model's complete reply (the user turn is already saved).
+        if (not self._chat_cancelled and self._chat_repo is not None
+                and self._chat_session is not None):
             self._chat_repo.add_message(self._chat_session, "assistant",
                                         self._chat_view[-1]["text"])
         self._render_chat()
@@ -588,9 +593,21 @@ class OverlayWindow(QWidget):
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
         if self._chat_worker is not None:
+            self._chat_cancelled = True
             self._chat_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
+
+    def shutdown(self):
+        """Stop background workers cleanly on app quit. quit()+wait() alone
+        won't interrupt a worker's blocking loop, so cancel first."""
+        self._chat_cancelled = True
+        if self._chat_worker is not None:
+            self._chat_worker.cancel()
+        if self._ingest_worker is not None:
+            self._ingest_worker.cancel()
+        self._teardown_chat_thread()
+        self._teardown_ingest()
 
     def _demote_foreground_game(self):
         if sys.platform != "win32":

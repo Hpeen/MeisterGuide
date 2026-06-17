@@ -51,6 +51,27 @@ def test_chat_accepts_bytes_lines():
     assert list(client.chat("m", [])) == ["hi"]
 
 
+class _FakeResponse:
+    def __init__(self, lines):
+        self._lines = lines
+        self.closed = False
+
+    def iter_lines(self, decode_unicode=False):
+        for line in self._lines:
+            yield line
+
+    def close(self):
+        self.closed = True
+
+
+def test_iter_close_releases_response_even_when_consumer_stops_early():
+    resp = _FakeResponse(["a", "b", "c"])
+    gen = OllamaClient._iter_close(resp)
+    assert next(gen) == "a"     # consume one line, then abandon the stream
+    gen.close()                 # mimic chat() breaking on `done` / cancel
+    assert resp.closed is True
+
+
 def test_chat_skips_whitespace_only_keepalive_lines():
     def fake_post(url, payload):
         return [

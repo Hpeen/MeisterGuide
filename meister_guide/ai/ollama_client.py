@@ -37,9 +37,19 @@ class OllamaClient:
         try:
             resp = requests.post(url, json=payload, stream=True, timeout=300)
             resp.raise_for_status()
-            return resp.iter_lines(decode_unicode=True)
         except requests.RequestException as err:
             raise OllamaUnavailable(str(err))
+        return self._iter_close(resp)
+
+    @staticmethod
+    def _iter_close(resp):
+        """Yield NDJSON lines, then release the connection — even if the caller
+        stops early (done flag, cancel) and the body is only partly read."""
+        try:
+            for line in resp.iter_lines(decode_unicode=True):
+                yield line
+        finally:
+            resp.close()
 
     def list_models(self):
         data = self._http_get(self._base + "/api/tags")
