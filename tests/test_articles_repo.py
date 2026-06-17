@@ -72,3 +72,23 @@ def test_scrape_state_defaults_then_persists(tmp_path):
     assert again.done == 40 and again.total == 16689
     repo.save(ScrapeState(continue_token=None, done=16689, total=16689))
     assert repo.load().continue_token is None
+
+
+def test_search_ranked_surfaces_canonical_article_over_noise(tmp_path):
+    from meister_guide.db.database import connect, init_db
+    from meister_guide.db.articles import ArticlesRepo
+    conn = connect(tmp_path / "r.db")
+    init_db(conn)
+    repo = ArticlesRepo(conn)
+    # canonical article + decoys that mention "creeper" a lot
+    repo.add_article(1, "Creeper",
+                     "A creeper is a hostile mob that creeps up and explodes. "
+                     "Creeper creeper creeper.", 1, "u1")
+    repo.add_article(2, "Creeper (disambiguation)",
+                     "Creeper may refer to: creeper, creeper, creeper.", 1, "u2")
+    repo.add_article(3, "Bedrock Edition beta 1.16.0.57",
+                     "Changelog. Creeper creeper creeper creeper creeper.", 1, "u3")
+
+    hits = repo.search_ranked("how do creepers work?", limit=3)
+    assert hits, "expected at least one hit"
+    assert hits[0].title == "Creeper"
