@@ -97,3 +97,50 @@ def test_chat_skips_whitespace_only_keepalive_lines():
         ]
     client = OllamaClient(http_post=fake_post)
     assert list(client.chat("m", [])) == ["ok"]   # no JSONDecodeError
+
+
+# tests/test_ollama_client.py  (append)
+from meister_guide.ai.ollama_client import pick_best_model
+
+
+def _m(name, size=None, caps=None):
+    d = {"name": name, "details": {}}
+    if size is not None:
+        d["details"]["parameter_size"] = size
+    if caps is not None:
+        d["capabilities"] = caps
+    return d
+
+
+def test_pick_best_model_prefers_largest_completion_model():
+    models = [
+        _m("llama3:latest", "8.0B", ["completion"]),
+        _m("qwen2.5:32b", "32.8B", ["completion", "tools"]),
+        _m("llama3.2:latest", "3.2B", ["completion", "tools"]),
+    ]
+    assert pick_best_model(models) == "qwen2.5:32b"
+
+
+def test_pick_best_model_skips_embedding_only():
+    models = [
+        _m("nomic-embed-text", "0.1B", ["embedding"]),
+        _m("llama3:latest", "8.0B", ["completion"]),
+    ]
+    assert pick_best_model(models) == "llama3:latest"
+
+
+def test_pick_best_model_falls_back_to_name_pref_without_sizes():
+    models = [_m("mistral"), _m("llama3:latest")]  # no parameter_size
+    assert pick_best_model(models) == "llama3:latest"   # llama3 preference
+
+
+def test_pick_best_model_none_when_empty():
+    assert pick_best_model([]) is None
+
+
+def test_pick_best_model_skips_subbillion_embedding_without_caps():
+    # No capabilities field (older Ollama): a 137M embedding model must not
+    # outrank an 8B chat model. Both the unit-aware size and the name guard
+    # protect against this.
+    models = [_m("llama3:latest", "8.0B"), _m("nomic-embed-text", "137M")]
+    assert pick_best_model(models) == "llama3:latest"

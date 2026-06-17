@@ -72,3 +72,41 @@ def test_scrape_state_defaults_then_persists(tmp_path):
     assert again.done == 40 and again.total == 16689
     repo.save(ScrapeState(continue_token=None, done=16689, total=16689))
     assert repo.load().continue_token is None
+
+
+def test_search_ranked_surfaces_canonical_article_over_noise(tmp_path):
+    from meister_guide.db.database import connect, init_db
+    from meister_guide.db.articles import ArticlesRepo
+    conn = connect(tmp_path / "r.db")
+    init_db(conn)
+    repo = ArticlesRepo(conn)
+    # canonical article + decoys that mention "creeper" a lot
+    repo.add_article(1, "Creeper",
+                     "A creeper is a hostile mob that creeps up and explodes. "
+                     "Creeper creeper creeper.", 1, "u1")
+    repo.add_article(2, "Creeper (disambiguation)",
+                     "Creeper may refer to: creeper, creeper, creeper.", 1, "u2")
+    repo.add_article(3, "Bedrock Edition beta 1.16.0.57",
+                     "Changelog. Creeper creeper creeper creeper creeper.", 1, "u3")
+
+    hits = repo.search_ranked("how do creepers work?", limit=3)
+    assert hits, "expected at least one hit"
+    assert hits[0].title == "Creeper"
+
+
+def test_search_ranked_recovers_singular_article_for_plural_multiterm(tmp_path):
+    # FTS5 doesn't stem: the AND query for "creepers explosion" matches the
+    # decoy (which contains the literal plural) but not the singular "Creeper"
+    # article. The always-merged de-inflected recall pass must still pull the
+    # canonical article into the candidate pool.
+    from meister_guide.db.database import connect, init_db
+    from meister_guide.db.articles import ArticlesRepo
+    conn = connect(tmp_path / "p.db")
+    init_db(conn)
+    repo = ArticlesRepo(conn)
+    repo.add_article(1, "Creeper", "A creeper explodes in an explosion.", 1, "u1")
+    repo.add_article(2, "Explosion",
+                     "Creepers cause an explosion. explosion explosion creepers.",
+                     1, "u2")
+    titles = [h.title for h in repo.search_ranked("creepers explosion", limit=3)]
+    assert "Creeper" in titles

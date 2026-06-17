@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from meister_guide.scraper.excerpt import make_excerpt
+from meister_guide.ai.query import clean_query
+from meister_guide.ai.ranking import rerank
 
 
 @dataclass
@@ -89,6 +91,46 @@ class ArticlesRepo:
             hits.append(SearchHit(row[0], row[1], make_excerpt(body, query), row[3]))
         return hits
 
+    def search_ranked(self, raw_query, limit=3, candidate_pool=15):
+        """Chat retrieval: clean the query to content terms, pull a pool of FTS
+        candidates with their bm25 rank, then re-rank so the canonical article
+        wins over changelog/disambiguation noise. Returns up to `limit` SearchHits.
+        The Guides-tab `search()` is intentionally separate and unchanged."""
+        terms = clean_query(raw_query)
+        if not terms:
+            return []
+        # Two passes, always merged: a strict AND query (precise when the terms
+        # are already the indexed root) and a de-inflected OR query (recall — so
+        # a plural question like "creepers" still reaches the singular "creeper"
+        # article). FTS5 doesn't stem, so without the recall pass a multi-term
+        # plural query whose AND form happens to match some other page would
+        # never pull the canonical article into the pool. Dedupe by rowid,
+        # keeping the best (most-negative) bm25 rank, then re-rank.
+        best_rank = {}
+        for fts in (self._to_fts_query(" ".join(terms)),
+                    self._terms_to_or_query(terms)):
+            if not fts:
+                continue
+            for rowid, rank in self._conn.execute(
+                "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (fts, candidate_pool),
+            ).fetchall():
+                if rowid not in best_rank or rank < best_rank[rowid]:
+                    best_rank[rowid] = rank
+        candidates = []
+        for rowid, rank in best_rank.items():
+            row = self._conn.execute(
+                "SELECT pageid, title, body_zlib, url FROM articles WHERE id = ?",
+                (rowid,),
+            ).fetchone()
+            if row is None:
+                continue
+            body = zlib.decompress(row[2]).decode("utf-8")
+            hit = SearchHit(row[0], row[1], make_excerpt(body, raw_query), row[3])
+            candidates.append((rank, hit))
+        return rerank(candidates, terms, limit)
+
     @staticmethod
     def _to_fts_query(query) -> str:
         """Turn free text into a safe FTS5 query: each word quoted (so special
@@ -99,6 +141,26 @@ class ArticlesRepo:
         quoted = [f'"{t}"' for t in terms[:-1]]
         quoted.append(f'"{terms[-1]}"*')  # prefix match the word being typed
         return " ".join(quoted)
+
+    @staticmethod
+    def _terms_to_or_query(terms) -> str:
+        """Build a broad OR query for `search_ranked` fallback. Each term is
+        prefix-matched; inflected forms (e.g. 'creepers') also try a stripped
+        root ('creeper') so un-stemmed FTS5 indexes still return candidates."""
+        parts = []
+        seen = set()
+        for t in terms:
+            candidates_t = [t]
+            # crude English de-inflection: strip trailing 's' / 'es'
+            if t.endswith("es") and len(t) > 4:
+                candidates_t.append(t[:-2])
+            elif t.endswith("s") and len(t) > 3:
+                candidates_t.append(t[:-1])
+            for candidate in candidates_t:
+                if candidate not in seen:
+                    seen.add(candidate)
+                    parts.append(f'"{candidate}"*')
+        return " OR ".join(parts)
 
 
 @dataclass

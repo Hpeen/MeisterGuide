@@ -10,6 +10,13 @@ class OkClient:
     def list_models(self):
         return ["llama3"]
 
+    def list_model_info(self):
+        return [{"name": "llama3", "details": {"parameter_size": "8.0B"},
+                 "capabilities": ["completion"]}]
+
+    def chat(self, model, messages):
+        return iter(())   # stream nothing so the worker finishes immediately
+
 
 def _window(tmp_path):
     conn = connect(tmp_path / "w.db")
@@ -71,3 +78,17 @@ def test_new_chat_does_not_create_empty_session(tmp_path):
     assert chat.list_sessions() == []          # nothing persisted until a message
     w._begin_exchange("first question", [])
     assert len(chat.list_sessions()) == 1      # session created lazily on send
+
+
+def test_send_uses_ranked_retrieval(tmp_path, monkeypatch):
+    w, chat = _window(tmp_path)
+    calls = {}
+    real = w._articles_repo.search_ranked
+    def spy(q, limit=3):
+        calls["q"] = q
+        return real(q, limit=limit)
+    monkeypatch.setattr(w._articles_repo, "search_ranked", spy)
+    w.chat_input.setText("how do creepers work?")
+    w._on_send()
+    assert calls.get("q") == "how do creepers work?"
+    w._teardown_chat_thread()   # stop the worker thread started by _on_send

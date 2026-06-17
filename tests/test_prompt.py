@@ -21,3 +21,14 @@ def test_build_messages_without_passages_has_no_excerpt_block():
     assert msgs[0]["role"] == "system"
     assert "Guide excerpts" not in msgs[0]["content"]
     assert msgs[-1] == {"role": "user", "content": "hello"}
+
+
+# tests/test_prompt.py  (append)
+from meister_guide.ai.prompt import SYSTEM_PREAMBLE
+
+
+def test_preamble_instructs_grounding_and_steps():
+    low = SYSTEM_PREAMBLE.lower()
+    assert "meister" in low
+    assert "excerpt" in low          # must lean on the supplied guide excerpts
+    assert "step" in low             # numbered steps for how-to questions
