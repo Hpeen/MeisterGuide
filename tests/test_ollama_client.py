@@ -136,3 +136,11 @@ def test_pick_best_model_falls_back_to_name_pref_without_sizes():
 
 def test_pick_best_model_none_when_empty():
     assert pick_best_model([]) is None
+
+
+def test_pick_best_model_skips_subbillion_embedding_without_caps():
+    # No capabilities field (older Ollama): a 137M embedding model must not
+    # outrank an 8B chat model. Both the unit-aware size and the name guard
+    # protect against this.
+    models = [_m("llama3:latest", "8.0B"), _m("nomic-embed-text", "137M")]
+    assert pick_best_model(models) == "llama3:latest"

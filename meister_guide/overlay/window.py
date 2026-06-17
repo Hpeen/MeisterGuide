@@ -11,7 +11,7 @@ import sys
 
 from meister_guide.ai.passage import relevant_passage
 from meister_guide.ai.prompt import build_messages
-from meister_guide.ai.ollama_client import OllamaUnavailable, pick_model, pick_best_model
+from meister_guide.ai.ollama_client import OllamaUnavailable, pick_best_model
 from meister_guide.ai.worker import ChatStreamWorker
 
 from meister_guide.config.geometry import save_geometry, restore_geometry

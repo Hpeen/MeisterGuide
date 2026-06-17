@@ -97,27 +97,29 @@ class ArticlesRepo:
         wins over changelog/disambiguation noise. Returns up to `limit` SearchHits.
         The Guides-tab `search()` is intentionally separate and unchanged."""
         terms = clean_query(raw_query)
-        fts_query = self._to_fts_query(" ".join(terms))
-        if not fts_query:
+        if not terms:
             return []
-        rows = self._conn.execute(
-            "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
-            "ORDER BY rank LIMIT ?",
-            (fts_query, candidate_pool),
-        ).fetchall()
-        if not rows:
-            # FTS5 doesn't stem; inflected terms (e.g. "creepers") won't match
-            # the indexed root ("creeper"). Fall back to an OR query where each
-            # cleaned term is also tried as a shorter prefix (strip trailing s/es).
-            fts_or = self._terms_to_or_query(terms)
-            if fts_or:
-                rows = self._conn.execute(
-                    "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
-                    "ORDER BY rank LIMIT ?",
-                    (fts_or, candidate_pool),
-                ).fetchall()
+        # Two passes, always merged: a strict AND query (precise when the terms
+        # are already the indexed root) and a de-inflected OR query (recall — so
+        # a plural question like "creepers" still reaches the singular "creeper"
+        # article). FTS5 doesn't stem, so without the recall pass a multi-term
+        # plural query whose AND form happens to match some other page would
+        # never pull the canonical article into the pool. Dedupe by rowid,
+        # keeping the best (most-negative) bm25 rank, then re-rank.
+        best_rank = {}
+        for fts in (self._to_fts_query(" ".join(terms)),
+                    self._terms_to_or_query(terms)):
+            if not fts:
+                continue
+            for rowid, rank in self._conn.execute(
+                "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (fts, candidate_pool),
+            ).fetchall():
+                if rowid not in best_rank or rank < best_rank[rowid]:
+                    best_rank[rowid] = rank
         candidates = []
-        for rowid, rank in rows:
+        for rowid, rank in best_rank.items():
             row = self._conn.execute(
                 "SELECT pageid, title, body_zlib, url FROM articles WHERE id = ?",
                 (rowid,),

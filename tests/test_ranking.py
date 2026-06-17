@@ -63,10 +63,11 @@ def test_rerank_surfaces_creeper_over_noise():
         (-3.0, _hit("Creeper")),
         (-2.0, _hit("Creeper Head")),
     ]
-    ranked = rerank(candidates, ["creeper"], limit=3)
-    assert ranked[0].title == "Creeper"
-    assert "(disambiguation)" not in ranked[0].title
-    assert all("Edition" not in h.title for h in ranked[:1])
+    titles = [h.title for h in rerank(candidates, ["creeper"], limit=3)]
+    # The two clean Creeper articles must outrank both noise pages, and the
+    # disambiguation page (penalised hardest) must drop out of the top 3.
+    assert titles[:2] == ["Creeper", "Creeper Head"]
+    assert "Creeper (disambiguation)" not in titles
 
 
 def test_rerank_respects_limit():

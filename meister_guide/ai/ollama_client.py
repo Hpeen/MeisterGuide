@@ -19,12 +19,22 @@ def pick_model(names):
 
 
 def _parse_size(text):
-    """'32.8B' -> 32.8, '8.0B' -> 8.0, '7B' -> 7.0, missing -> 0.0.
-    Unit suffix is ignored — all Ollama sizes are in billions of params."""
+    """Parameter count in billions: '32.8B' -> 32.8, '8.0B' -> 8.0, '7B' -> 7,
+    '137M' -> 0.137, missing -> 0.0. The unit matters — an embedding model's
+    '137M' must not outrank an '8.0B' chat model."""
     if not text:
         return 0.0
-    m = re.match(r"([\d.]+)", str(text).strip())
-    return float(m.group(1)) if m else 0.0
+    m = re.match(r"([\d.]+)\s*([bmk]?)", str(text).strip().lower())
+    if not m:
+        return 0.0
+    value = float(m.group(1))
+    scale = {"b": 1.0, "m": 1e-3, "k": 1e-6, "": 1.0}[m.group(2)]
+    return value * scale
+
+
+# Models that can't actually hold a chat, even if they don't advertise their
+# capabilities on older Ollama builds (the /api/tags capabilities field is new).
+_NON_CHAT_HINTS = ("embed", "bge", "nomic", "minilm")
 
 
 def pick_best_model(models):
@@ -40,6 +50,8 @@ def pick_best_model(models):
         caps = m.get("capabilities") or []
         if caps and "completion" not in caps:
             continue
+        if not caps and any(h in name.lower() for h in _NON_CHAT_HINTS):
+            continue  # no capabilities field — guard known embedding models by name
         size = _parse_size((m.get("details") or {}).get("parameter_size"))
         eligible.append((size, name))
     if not eligible:
