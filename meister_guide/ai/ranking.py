@@ -24,3 +24,18 @@ def noise_penalty(title):
     if "a minecraft movie" in low or "live event" in low:
         return _NOISE_PENALTY
     return 0.0
+
+
+def title_boost(title, terms):
+    """Boost from overlap between cleaned query `terms` and the title's words.
+    Exact set match scores highest, then 'all terms present', then partial."""
+    if not terms:
+        return 0.0
+    title_words = set(re.findall(r"\w+", title.lower()))
+    matched = sum(1 for t in terms if t in title_words)
+    if matched == 0:
+        return 0.0
+    boost = 1000.0 * (matched / len(terms))   # full coverage -> 1000
+    if title_words == set(terms):              # title IS exactly the query
+        boost += 1000.0
+    return boost

@@ -21,3 +21,23 @@ def test_history_and_movie_pages_penalised():
     assert noise_penalty("Bedrock Edition mob render history") > 0
     assert noise_penalty("A Minecraft Movie") > 0
     assert noise_penalty("A Minecraft Movie Live Event") > 0
+
+
+# title_boost tests (Task 3)
+from meister_guide.ai.ranking import title_boost
+
+
+def test_exact_title_match_beats_partial_beats_none():
+    exact = title_boost("Creeper", ["creeper"])
+    partial = title_boost("Creeper Head", ["creeper"])
+    none = title_boost("Wither", ["creeper"])
+    assert exact > partial > none == 0.0
+
+
+def test_all_terms_present_scores_high():
+    assert title_boost("Nether Portal", ["nether", "portal"]) > \
+        title_boost("Broken Nether Portal", ["nether", "portal"])
+
+
+def test_no_terms_scores_zero():
+    assert title_boost("Creeper", []) == 0.0
