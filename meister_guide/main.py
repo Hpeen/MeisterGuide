@@ -6,6 +6,7 @@ from PySide6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 from meister_guide.theme.stylesheet import build_stylesheet
+from meister_guide.theme.fonts import load_fonts
 from meister_guide.overlay.window import OverlayWindow
 from meister_guide.input.hotkey import GlobalHotkey
 from meister_guide.db.database import default_db_path, connect, init_db
@@ -37,6 +38,7 @@ def _make_tray_icon() -> QIcon:
 def main() -> int:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # live in the tray
+    load_fonts()                          # register bundled fonts first
     app.setStyleSheet(build_stylesheet())
 
     settings = QSettings(ORG, APP)

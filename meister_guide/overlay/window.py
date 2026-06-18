@@ -1,8 +1,9 @@
 """The Meister Guide overlay window (Phase 1 shell)."""
 from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
+from PySide6.QtGui import QPainter, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QTabWidget, QFrame, QComboBox,
+    QTabWidget, QComboBox,
     QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
@@ -17,7 +18,10 @@ from meister_guide.ai.worker import ChatStreamWorker
 from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE, BACKEND_AUTO
 from meister_guide.input.hotkey import parse_hotkey
 
-from meister_guide.config.geometry import save_geometry, restore_geometry
+from meister_guide.config.dock import (
+    dock_rect, nearest_edge, normalize_edge, PANEL_WIDTH,
+)
+from meister_guide.theme import painters
 from meister_guide.overlay.win32_topmost import (
     force_window_to_front,
     get_foreground_window,
@@ -26,7 +30,34 @@ from meister_guide.overlay.win32_topmost import (
 )
 from meister_guide.scraper.worker import IngestWorker
 
-_DEFAULT_RECT = QRect(200, 200, 460, 620)
+class _PanelWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._edge = "right"
+
+    def set_edge(self, edge):
+        self._edge = edge
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        painters.paint_panel(p, self.width(), self.height(), self._edge)
+        p.end()
+
+
+class _SpineWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._edge = "right"
+
+    def set_edge(self, edge):
+        self._edge = edge
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        painters.paint_spine(p, self.width(), self.height(), self._edge)
+        p.end()
 
 
 class OverlayWindow(QWidget):
@@ -53,7 +84,7 @@ class OverlayWindow(QWidget):
         self._chat_repo = chat_repo
         self._ollama = ollama_client
         self._tabs = None
-        self._guides_index = 1
+        self._guides_index = 0
         self._chat_session = None
         self._chat_view = []        # list of {"role", "text", "sources"}
         self._chat_thread = None
@@ -66,6 +97,8 @@ class OverlayWindow(QWidget):
         self._backend_chain = []
         self._attempt = 0             # index into _backend_chain in flight
         self._pending_messages = None  # so a fallback can replay the same turn
+        self._dock_edge = normalize_edge(
+            settings_repo.get("dock_edge", "right") if settings_repo else "right")
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -75,74 +108,81 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         self._build_ui()
-        self._apply_saved_geometry()
+        self._sync_layout_for_edge()
 
     # ---- layout ---------------------------------------------------------
     def _build_ui(self):
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        self._outer = QHBoxLayout(self)
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self._outer.setSpacing(0)
 
-        spine = QFrame()
-        spine.setObjectName("Spine")
-        spine.setFixedWidth(4)
-        outer.addWidget(spine)
+        self._spine = _SpineWidget()
+        self._spine.setFixedWidth(painters.SPINE_W)
 
-        root = QWidget()
-        root.setObjectName("OverlayRoot")
-        outer.addWidget(root)
+        self._root_panel = _PanelWidget()
+        self._root_panel.setObjectName("OverlayRoot")
 
-        col = QVBoxLayout(root)
+        # order set by _sync_layout_for_edge(); add both now
+        self._outer.addWidget(self._spine)
+        self._outer.addWidget(self._root_panel)
+
+        col = QVBoxLayout(self._root_panel)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
-
         col.addWidget(self._build_header())
-        col.addWidget(self._build_disclaimer())
         col.addWidget(self._build_tabs(), 1)
         col.addWidget(self._build_footer())
 
     def _build_header(self) -> QWidget:
+        from PySide6.QtWidgets import QToolButton, QMenu
         header = QWidget()
         header.setObjectName("Header")
-        header.setFixedHeight(40)
-        lay = QHBoxLayout(header)
-        lay.setContentsMargins(12, 0, 12, 0)
+        lay = QVBoxLayout(header)
+        lay.setContentsMargins(20, 16, 20, 12)
+        lay.setSpacing(9)
 
-        title = QLabel("⚒ Meister Guide")  # crossed hammers
-        title.setObjectName("HeaderTitle")
-        lay.addWidget(title)
-        lay.addStretch(1)
+        row1 = QHBoxLayout()
+        word = QLabel("Meister")
+        word.setObjectName("Wordmark")
+        sub = QLabel("guide")
+        sub.setObjectName("WordmarkSub")
+        row1.addWidget(word)
+        row1.addWidget(sub)
+        row1.addStretch(1)
+        self.hotkey_chip = QLabel(
+            self._settings_repo.get("hotkey", "Alt+Insert")
+            if self._settings_repo else "Alt+Insert")
+        self.hotkey_chip.setObjectName("HotkeyChip")
+        row1.addWidget(self.hotkey_chip)
+        close = QPushButton("✕")
+        close.setObjectName("CloseBtn")
+        close.setFixedSize(28, 28)
+        close.clicked.connect(self.hide)
+        row1.addWidget(close)
+        lay.addLayout(row1)
 
-        self.game_indicator = QLabel("● No game detected")
-        self.game_indicator.setObjectName("GameIndicator")
-        lay.addWidget(self.game_indicator)
-
-        self.game_dropdown = QComboBox()
-        self.game_dropdown.setObjectName("GameDropdown")
-        self.game_dropdown.currentIndexChanged.connect(self._on_manual_pick)
-        lay.addWidget(self.game_dropdown)
-        self._populate_dropdown()
+        row2 = QHBoxLayout()
+        row2.setSpacing(7)
+        self.game_pill = QToolButton()
+        self.game_pill.setObjectName("GamePill")
+        self.game_pill.setPopupMode(QToolButton.InstantPopup)
+        self._game_menu = QMenu(self.game_pill)
+        self.game_pill.setMenu(self._game_menu)
+        row2.addWidget(self.game_pill)
+        row2.addStretch(1)
+        lay.addLayout(row2)
 
         self._header = header
+        self._rebuild_game_menu()
+        self._update_game_pill()
         return header
-
-    def _build_disclaimer(self) -> QWidget:
-        # The overlay can only sit above games run in windowed / borderless mode;
-        # exclusive fullscreen (e.g. Minecraft's F11) renders past it.
-        bar = QLabel(
-            "Tip: run your game in windowed or borderless mode so the overlay "
-            "can show on top — exclusive fullscreen will cover it."
-        )
-        bar.setObjectName("Disclaimer")
-        bar.setWordWrap(True)
-        bar.setContentsMargins(12, 6, 12, 6)
-        return bar
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
-        tabs.addTab(self._build_chat_tab(), "Chat")
-        self._guides_index = tabs.addTab(self._build_guides_tab(), "Guides")
-        tabs.addTab(self._build_settings_tab(), "Settings")
+        self._guides_index = tabs.addTab(self._build_guides_tab(), "Wiki")
+        tabs.addTab(self._build_chat_tab(), "Ask Meister")
+        tabs.addTab(self._build_settings_tab(), "⚙")
+        tabs.setCurrentIndex(0)   # default landing = Wiki
         self._tabs = tabs
         return tabs
 
@@ -221,11 +261,15 @@ class OverlayWindow(QWidget):
             self._chat_client = None
             self._model = None
             self._set_chat_enabled(False, reason)
+            if hasattr(self, "footer_note"):
+                self._refresh_footer()
             return
         client, model, _label = chain[0]
         self._chat_client = client
         self._model = model
         self._set_chat_enabled(True, self._backend_status(0))
+        if hasattr(self, "footer_note"):
+            self._refresh_footer()
 
     def _claude_attempt(self):
         """Returns ((client, model, "online"), None) if a key is set, else
@@ -622,6 +666,8 @@ class OverlayWindow(QWidget):
         if self._hotkey is not None:
             applied = self._hotkey.rebind(spec)
         self._settings_repo.set("hotkey", spec)
+        if hasattr(self, "hotkey_chip"):
+            self.hotkey_chip.setText(spec)
         self.set_hotkey_status.setText(
             f"Hotkey set to {spec}." if applied else
             f"Saved {spec}, but the OS rejected it (already in use?) — it'll apply next launch.")
@@ -629,24 +675,28 @@ class OverlayWindow(QWidget):
     def _build_footer(self) -> QWidget:
         footer = QWidget()
         footer.setObjectName("Footer")
-        footer.setFixedHeight(32)
+        footer.setFixedHeight(34)
         lay = QHBoxLayout(footer)
-        lay.setContentsMargins(12, 0, 8, 0)
-
-        hint = QLabel("Alt+Insert to hide")
-        lay.addWidget(hint)
+        lay.setContentsMargins(18, 0, 18, 0)
+        self.footer_note = QLabel("")
+        self.footer_note.setObjectName("FooterNote")
+        lay.addWidget(self.footer_note)
         lay.addStretch(1)
-
-        minimize = QPushButton("–")
-        minimize.setFixedWidth(28)
-        minimize.clicked.connect(self.hide)
-        lay.addWidget(minimize)
-
-        close = QPushButton("✕")
-        close.setFixedWidth(28)
-        close.clicked.connect(self.hide)
-        lay.addWidget(close)
+        stack = QLabel("PySide6")
+        stack.setObjectName("FooterStack")
+        lay.addWidget(stack)
+        self._refresh_footer()
         return footer
+
+    def _refresh_footer(self):
+        backend = (self._settings_repo.chat_backend()
+                   if self._settings_repo is not None else BACKEND_AUTO)
+        key = (self._settings_repo.claude_api_key()
+               if self._settings_repo is not None else "")
+        online = backend == BACKEND_CLAUDE or (backend == BACKEND_AUTO and key)
+        self.footer_note.setText(
+            "local-first · optional online" if online
+            else "runs locally · no account · no cloud")
 
     # ---- guides ---------------------------------------------------------
     def _on_search(self, text):
@@ -684,60 +734,86 @@ class OverlayWindow(QWidget):
         )
 
     # ---- game selection -------------------------------------------------
-    def _populate_dropdown(self):
-        self.game_dropdown.blockSignals(True)
-        self.game_dropdown.clear()
-        self.game_dropdown.addItem("Select a game...", None)
+    def _rebuild_game_menu(self):
+        if not hasattr(self, "_game_menu"):
+            return
+        self._game_menu.clear()
         for game in self._games:
-            self.game_dropdown.addItem(game.name, game.id)
-        self.game_dropdown.blockSignals(False)
+            act = self._game_menu.addAction(game.name)
+            act.triggered.connect(lambda _=False, gid=game.id:
+                                  self._on_manual_pick_game(gid))
+
+    def _update_game_pill(self):
+        if self.active_game is None:
+            self.game_pill.setText("●  No game detected")
+            self.game_pill.setProperty("detected", False)
+        else:
+            self.game_pill.setText(f"●  {self.active_game.name} detected")
+            self.game_pill.setProperty("detected", True)
+        # re-polish so the [detected="true"] QSS state applies
+        self.game_pill.style().unpolish(self.game_pill)
+        self.game_pill.style().polish(self.game_pill)
+
+    def _on_manual_pick_game(self, game_id):
+        chosen = next((g for g in self._games if g.id == game_id), None)
+        if chosen is not None:
+            self._set_active(chosen, manual=True)
 
     def set_games(self, games):
         self._games = list(games)
-        self._populate_dropdown()
+        self._rebuild_game_menu()
 
     def _set_active(self, game, manual: bool):
         self.active_game = game
-        if game is None:
-            self.game_indicator.setText("● No game detected")
-            self.game_dropdown.setVisible(True)
-        else:
-            suffix = " (manual)" if manual else ""
-            self.game_indicator.setText(f"● Playing: {game.name}{suffix}")
-            # Hide the picker on auto-detection; keep it on a manual pick so the
-            # user can re-choose.
-            self.game_dropdown.setVisible(manual)
+        self._update_game_pill()
 
     def set_detected_game(self, game):
         """Called by the detector. A detection always wins over a manual pick."""
         self._set_active(game, manual=False)
 
-    def _on_manual_pick(self, index):
-        game_id = self.game_dropdown.itemData(index)
-        if game_id is None:
-            return
-        chosen = next((g for g in self._games if g.id == game_id), None)
-        if chosen is not None:
-            self._set_active(chosen, manual=True)
+    # ---- docked geometry ------------------------------------------------
+    def _current_screen_geometry(self):
+        scr = QGuiApplication.screenAt(self.geometry().center()) \
+            or QGuiApplication.primaryScreen()
+        return scr.availableGeometry()
 
-    # ---- geometry persistence ------------------------------------------
-    def _apply_saved_geometry(self):
-        rect = restore_geometry(self._settings)
-        self.setGeometry(rect if rect is not None else _DEFAULT_RECT)
+    def _apply_dock(self, screen=None):
+        screen = screen if screen is not None else self._current_screen_geometry()
+        self.setFixedWidth(PANEL_WIDTH)
+        self.setGeometry(dock_rect(screen, self._dock_edge))
+        self._sync_layout_for_edge()
 
-    def _persist_geometry(self):
-        save_geometry(self._settings, self.geometry())
+    def _snap_to_nearest(self, window_center_x=None, screen=None):
+        screen = screen if screen is not None else self._current_screen_geometry()
+        cx = window_center_x if window_center_x is not None \
+            else self.geometry().center().x()
+        self._dock_edge = nearest_edge(cx, screen)
+        if self._settings_repo is not None:
+            self._settings_repo.set("dock_edge", self._dock_edge)
+        self.setGeometry(dock_rect(screen, self._dock_edge))
+        self._sync_layout_for_edge()
 
-    def moveEvent(self, event):
-        super().moveEvent(event)
-        self._persist_geometry()
+    def _sync_layout_for_edge(self):
+        # Spine faces inward: edge 'right' -> spine on left (index 0); edge
+        # 'left' -> spine on right (last). Reorder the outer layout + tell the
+        # widgets which side to round.
+        spine_left = (self._dock_edge == "right")
+        self._spine.set_edge(self._dock_edge)
+        self._root_panel.set_edge(self._dock_edge)
+        self._outer.removeWidget(self._spine)
+        self._outer.removeWidget(self._root_panel)
+        if spine_left:
+            self._outer.addWidget(self._spine)
+            self._outer.addWidget(self._root_panel)
+        else:
+            self._outer.addWidget(self._root_panel)
+            self._outer.addWidget(self._spine)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._persist_geometry()
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_dock()
 
     def closeEvent(self, event):
-        self._persist_geometry()
         super().closeEvent(event)
 
     # ---- drag by header -------------------------------------------------
@@ -750,11 +826,20 @@ class OverlayWindow(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_offset)
 
     def mouseReleaseEvent(self, event):
+        was_dragging = self._drag_offset is not None
         self._drag_offset = None
+        if was_dragging:
+            self._snap_to_nearest()
 
     def _on_header(self, pos) -> bool:
-        # pos is relative to the window; header sits in the top 40px past the spine.
-        return pos.y() < self._header.height() and pos.x() >= 4
+        # pos is relative to the window; the header sits in the top band of the
+        # body panel, excluding the spine — which is on the left when docked
+        # right and on the right when docked left.
+        if pos.y() >= self._header.height():
+            return False
+        if self._dock_edge == "right":
+            return pos.x() >= painters.SPINE_W
+        return pos.x() < self.width() - painters.SPINE_W
 
     # ---- toggle ---------------------------------------------------------
     def toggle(self):
@@ -773,8 +858,8 @@ class OverlayWindow(QWidget):
             force_window_to_front(int(self.winId()))
 
     def hideEvent(self, event):
-        # Covers Alt+Insert, the tray toggle, and the footer minimize/close
-        # buttons — all routes that hide the overlay restore the game.
+        # Covers Alt+Insert and the tray toggle — all routes that hide the
+        # overlay restore the game.
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
         if self._chat_worker is not None:
