@@ -4,11 +4,14 @@ are stored as text; callers coerce as needed."""
 
 BACKEND_OLLAMA = "ollama"
 BACKEND_CLAUDE = "claude"
+BACKEND_AUTO = "auto"
 
-# Defaults returned when a key has never been written. Ollama stays the default
-# backend so the app is offline/private out of the box; Claude is opt-in.
+# Defaults returned when a key has never been written. Auto is the default:
+# prefer Claude when an API key is set (deeper answers), otherwise stay fully
+# local on Ollama — and fall back to local automatically if Claude can't be
+# reached. No key means it behaves exactly like the old Ollama default.
 _DEFAULTS = {
-    "chat_backend": BACKEND_OLLAMA,
+    "chat_backend": BACKEND_AUTO,
     "claude_api_key": "",
     "claude_model": "claude-opus-4-8",
 }
