@@ -41,3 +41,8 @@ def test_none_value_stored_as_empty_string(tmp_path):
     repo = _repo(tmp_path)
     repo.set("claude_api_key", None)
     assert repo.claude_api_key() == ""
+
+
+def test_dock_edge_default_is_right(tmp_path):
+    repo = _repo(tmp_path)
+    assert repo.get("dock_edge") == "right"

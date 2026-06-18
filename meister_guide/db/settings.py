@@ -14,6 +14,7 @@ _DEFAULTS = {
     "chat_backend": BACKEND_AUTO,
     "claude_api_key": "",
     "claude_model": "claude-opus-4-8",
+    "dock_edge": "right",
 }
 
 
