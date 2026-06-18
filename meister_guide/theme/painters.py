@@ -56,3 +56,47 @@ def paint_spine(painter: QPainter, w: int, h: int, edge: str = "right"):
         shade.setColorAt(0.15, _c(0, 0, 0, 0))
     painter.setBrush(QBrush(shade))
     painter.drawRect(0, 0, w, h)
+
+
+def _vlines(painter, w, h, step, line_w, color):
+    """Approximates a repeating-linear-gradient of vertical grain lines."""
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    x = 0
+    while x < w:
+        painter.drawRect(QRectF(x, 0, line_w, h))
+        x += step
+
+
+def paint_panel(painter: QPainter, w: int, h: int, edge: str = "right"):
+    """Draw the charred-walnut body panel into a w×h region at (0,0). Rounded
+    corners sit on the inward side (away from the screen edge)."""
+    painter.setRenderHint(QPainter.Antialiasing, True)
+
+    # 1. Base diagonal gradient.
+    base = QLinearGradient(0, 0, w, h * 0.2)
+    base.setColorAt(0.0, _c(0x25, 0x18, 0x10))
+    base.setColorAt(0.55, _c(0x1a, 0x11, 0x0b))
+    base.setColorAt(1.0, _c(0x1f, 0x15, 0x0d))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QBrush(base))
+    painter.drawRect(0, 0, w, h)
+
+    # 2-5. Layered grain (coarse -> micro).
+    _vlines(painter, w, h, 37, 1, _c(0, 0, 0, 33))
+    _vlines(painter, w, h, 23, 2, _c(128, 86, 48, 15))
+    _vlines(painter, w, h, 13, 1, _c(0, 0, 0, 56))
+    _vlines(painter, w, h, 6, 1, _c(86, 60, 38, 28))
+
+    # 6. Top/bottom edge vignette.
+    vig = QLinearGradient(0, 0, 0, h)
+    vig.setColorAt(0.0, _c(255, 200, 140, 13))
+    vig.setColorAt(0.09, _c(0, 0, 0, 0))
+    vig.setColorAt(0.91, _c(0, 0, 0, 0))
+    vig.setColorAt(1.0, _c(0, 0, 0, 82))
+    painter.setBrush(QBrush(vig))
+    painter.drawRect(0, 0, w, h)
+
+    # Inner top highlight.
+    painter.setBrush(_c(255, 225, 160, 20))
+    painter.drawRect(QRectF(0, 0, w, 1))

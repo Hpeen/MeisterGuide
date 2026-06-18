@@ -18,3 +18,15 @@ def test_paint_spine_does_not_raise():
         painters.paint_spine(p, 30, 600, edge="left")
     finally:
         p.end()
+
+
+def test_paint_panel_does_not_raise():
+    _app()
+    pm = QPixmap(402, 600)
+    pm.fill()
+    p = QPainter(pm)
+    try:
+        painters.paint_panel(p, 402, 600, edge="right")
+        painters.paint_panel(p, 402, 600, edge="left")
+    finally:
+        p.end()
