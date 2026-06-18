@@ -1,5 +1,6 @@
 """The Meister Guide overlay window (Phase 1 shell)."""
 from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QComboBox,
@@ -17,7 +18,10 @@ from meister_guide.ai.worker import ChatStreamWorker
 from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE, BACKEND_AUTO
 from meister_guide.input.hotkey import parse_hotkey
 
-from meister_guide.config.geometry import save_geometry, restore_geometry
+from meister_guide.config.dock import (
+    dock_rect, nearest_edge, normalize_edge, PANEL_WIDTH,
+)
+from meister_guide.theme import painters
 from meister_guide.overlay.win32_topmost import (
     force_window_to_front,
     get_foreground_window,
@@ -27,6 +31,36 @@ from meister_guide.overlay.win32_topmost import (
 from meister_guide.scraper.worker import IngestWorker
 
 _DEFAULT_RECT = QRect(200, 200, 460, 620)
+
+
+class _PanelWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._edge = "right"
+
+    def set_edge(self, edge):
+        self._edge = edge
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        painters.paint_panel(p, self.width(), self.height(), self._edge)
+        p.end()
+
+
+class _SpineWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._edge = "right"
+
+    def set_edge(self, edge):
+        self._edge = edge
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        painters.paint_spine(p, self.width(), self.height(), self._edge)
+        p.end()
 
 
 class OverlayWindow(QWidget):
@@ -66,6 +100,9 @@ class OverlayWindow(QWidget):
         self._backend_chain = []
         self._attempt = 0             # index into _backend_chain in flight
         self._pending_messages = None  # so a fallback can replay the same turn
+        self._settings_repo = settings_repo
+        self._dock_edge = normalize_edge(
+            settings_repo.get("dock_edge", "right") if settings_repo else "right")
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -75,29 +112,28 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         self._build_ui()
-        self._apply_saved_geometry()
+        self._sync_layout_for_edge()
 
     # ---- layout ---------------------------------------------------------
     def _build_ui(self):
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        self._outer = QHBoxLayout(self)
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self._outer.setSpacing(0)
 
-        spine = QFrame()
-        spine.setObjectName("Spine")
-        spine.setFixedWidth(4)
-        outer.addWidget(spine)
+        self._spine = _SpineWidget()
+        self._spine.setFixedWidth(painters.SPINE_W)
 
-        root = QWidget()
-        root.setObjectName("OverlayRoot")
-        outer.addWidget(root)
+        self._root_panel = _PanelWidget()
+        self._root_panel.setObjectName("OverlayRoot")
 
-        col = QVBoxLayout(root)
+        # order set by _sync_layout_for_edge(); add both now
+        self._outer.addWidget(self._spine)
+        self._outer.addWidget(self._root_panel)
+
+        col = QVBoxLayout(self._root_panel)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
-
         col.addWidget(self._build_header())
-        col.addWidget(self._build_disclaimer())
         col.addWidget(self._build_tabs(), 1)
         col.addWidget(self._build_footer())
 
@@ -720,24 +756,50 @@ class OverlayWindow(QWidget):
         if chosen is not None:
             self._set_active(chosen, manual=True)
 
-    # ---- geometry persistence ------------------------------------------
-    def _apply_saved_geometry(self):
-        rect = restore_geometry(self._settings)
-        self.setGeometry(rect if rect is not None else _DEFAULT_RECT)
+    # ---- docked geometry ------------------------------------------------
+    def _current_screen_geometry(self):
+        from PySide6.QtGui import QGuiApplication
+        scr = QGuiApplication.screenAt(self.geometry().center()) \
+            or QGuiApplication.primaryScreen()
+        return scr.availableGeometry()
 
-    def _persist_geometry(self):
-        save_geometry(self._settings, self.geometry())
+    def _apply_dock(self, screen=None):
+        screen = screen if screen is not None else self._current_screen_geometry()
+        self.setFixedWidth(PANEL_WIDTH)
+        self.setGeometry(dock_rect(screen, self._dock_edge))
+        self._sync_layout_for_edge()
 
-    def moveEvent(self, event):
-        super().moveEvent(event)
-        self._persist_geometry()
+    def _snap_to_nearest(self, window_center_x=None, screen=None):
+        screen = screen if screen is not None else self._current_screen_geometry()
+        cx = window_center_x if window_center_x is not None \
+            else self.geometry().center().x()
+        self._dock_edge = nearest_edge(cx, screen)
+        if self._settings_repo is not None:
+            self._settings_repo.set("dock_edge", self._dock_edge)
+        self.setGeometry(dock_rect(screen, self._dock_edge))
+        self._sync_layout_for_edge()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._persist_geometry()
+    def _sync_layout_for_edge(self):
+        # Spine faces inward: edge 'right' -> spine on left (index 0); edge
+        # 'left' -> spine on right (last). Reorder the outer layout + tell the
+        # widgets which side to round.
+        spine_left = (self._dock_edge == "right")
+        self._spine.set_edge(self._dock_edge)
+        self._root_panel.set_edge(self._dock_edge)
+        self._outer.removeWidget(self._spine)
+        self._outer.removeWidget(self._root_panel)
+        if spine_left:
+            self._outer.addWidget(self._spine)
+            self._outer.addWidget(self._root_panel)
+        else:
+            self._outer.addWidget(self._root_panel)
+            self._outer.addWidget(self._spine)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_dock()
 
     def closeEvent(self, event):
-        self._persist_geometry()
         super().closeEvent(event)
 
     # ---- drag by header -------------------------------------------------
@@ -750,7 +812,10 @@ class OverlayWindow(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_offset)
 
     def mouseReleaseEvent(self, event):
+        was_dragging = self._drag_offset is not None
         self._drag_offset = None
+        if was_dragging:
+            self._snap_to_nearest()
 
     def _on_header(self, pos) -> bool:
         # pos is relative to the window; header sits in the top 40px past the spine.
