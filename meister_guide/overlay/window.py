@@ -100,7 +100,6 @@ class OverlayWindow(QWidget):
         self._backend_chain = []
         self._attempt = 0             # index into _backend_chain in flight
         self._pending_messages = None  # so a fallback can replay the same turn
-        self._settings_repo = settings_repo
         self._dock_edge = normalize_edge(
             settings_repo.get("dock_edge", "right") if settings_repo else "right")
 
@@ -818,8 +817,14 @@ class OverlayWindow(QWidget):
             self._snap_to_nearest()
 
     def _on_header(self, pos) -> bool:
-        # pos is relative to the window; header sits in the top 40px past the spine.
-        return pos.y() < self._header.height() and pos.x() >= 4
+        # pos is relative to the window; the header sits in the top band of the
+        # body panel, excluding the spine — which is on the left when docked
+        # right and on the right when docked left.
+        if pos.y() >= self._header.height():
+            return False
+        if self._dock_edge == "right":
+            return pos.x() >= painters.SPINE_W
+        return pos.x() < self.width() - painters.SPINE_W
 
     # ---- toggle ---------------------------------------------------------
     def toggle(self):
