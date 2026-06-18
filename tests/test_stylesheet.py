@@ -10,3 +10,5 @@ def test_stylesheet_includes_core_colors_and_widgets():
     assert "QPushButton" in qss
     assert "QScrollBar:vertical" in qss
     assert "width: 8px" in qss
+    assert "QComboBox" in qss
+    assert "QMenu" in qss

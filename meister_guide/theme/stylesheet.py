@@ -116,6 +116,28 @@ def build_stylesheet() -> str:
         color: {p['ink_dim']};
     }}
     #FooterStack {{ color: {p['parchment_ghost']}; }}
+    QComboBox {{
+        background: rgba(0,0,0,0.28);
+        border: 1px solid rgba(200,161,74,0.28);
+        border-radius: 7px;
+        padding: 5px 9px;
+        color: {p['parchment']};
+    }}
+    QComboBox QAbstractItemView {{
+        background: {p['walnut_mid']};
+        border: 1px solid rgba(200,161,74,0.3);
+        color: {p['parchment']};
+        selection-background-color: rgba(200,161,74,0.25);
+        selection-color: {p['parchment']};
+    }}
+    QMenu {{
+        background: {p['walnut_mid']};
+        border: 1px solid rgba(200,161,74,0.3);
+        color: {p['parchment']};
+    }}
+    QMenu::item:selected {{
+        background: rgba(200,161,74,0.2);
+    }}
     QScrollBar:vertical {{ background: transparent; width: 8px; margin: 0; }}
     QScrollBar::handle:vertical {{ background: #4a3320; border-radius: 6px; min-height: 24px; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
