@@ -43,6 +43,13 @@ def test_no_terms_scores_zero():
     assert title_boost("Creeper", []) == 0.0
 
 
+def test_plural_query_term_matches_singular_title():
+    # De-inflection: a plural cleaned term must still score the singular title as
+    # an exact match, so "creepers" promotes the "Creeper" article to #1.
+    assert title_boost("Creeper", ["creepers"]) == title_boost("Creeper", ["creeper"])
+    assert title_boost("Creeper", ["creepers"]) > title_boost("Creeper Head", ["creepers"])
+
+
 # rerank tests (Task 4)
 from collections import namedtuple
 from meister_guide.ai.ranking import rerank

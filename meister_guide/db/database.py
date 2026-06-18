@@ -3,7 +3,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from meister_guide.db.schema import CORE_TABLES, PHASE3_TABLES
+from meister_guide.db.schema import CORE_TABLES, PHASE3_TABLES, PHASE6_TABLES
 
 
 def default_db_path() -> Path:
@@ -23,7 +23,7 @@ def connect(db_path) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create the core + Phase 3 tables if they don't exist. Idempotent."""
-    for statement in CORE_TABLES + PHASE3_TABLES:
+    """Create the core + Phase 3 + Phase 6 tables if they don't exist. Idempotent."""
+    for statement in CORE_TABLES + PHASE3_TABLES + PHASE6_TABLES:
         conn.execute(statement)
     conn.commit()

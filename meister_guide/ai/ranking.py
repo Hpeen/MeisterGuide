@@ -26,17 +26,30 @@ def noise_penalty(title):
     return 0.0
 
 
+def _deinflect(word):
+    """Crude English de-inflection (strip trailing 'es'/'s'), matching the rule
+    used by the retrieval recall pass so title scoring and recall agree: a plural
+    query term ('creepers') must match the singular title word ('Creeper')."""
+    if word.endswith("es") and len(word) > 4:
+        return word[:-2]
+    if word.endswith("s") and len(word) > 3:
+        return word[:-1]
+    return word
+
+
 def title_boost(title, terms):
     """Boost from overlap between cleaned query `terms` and the title's words.
-    Exact set match scores highest, then 'all terms present', then partial."""
+    Exact set match scores highest, then 'all terms present', then partial.
+    Both sides are de-inflected so plural/singular forms still line up."""
     if not terms:
         return 0.0
-    title_words = set(re.findall(r"\w+", title.lower()))
-    matched = sum(1 for t in terms if t in title_words)
+    title_words = {_deinflect(w) for w in re.findall(r"\w+", title.lower())}
+    norm_terms = [_deinflect(t) for t in terms]
+    matched = sum(1 for t in norm_terms if t in title_words)
     if matched == 0:
         return 0.0
-    boost = 1000.0 * (matched / len(terms))   # full coverage -> 1000
-    if title_words == set(terms):              # title IS exactly the query
+    boost = 1000.0 * (matched / len(norm_terms))   # full coverage -> 1000
+    if title_words == set(norm_terms):             # title IS exactly the query
         boost += 1000.0
     return boost
 
