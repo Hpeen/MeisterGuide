@@ -10,6 +10,8 @@ class FakeClient:
         self._batches = batches
     def iter_batches(self, start_token=None):
         yield from self._batches
+    def iter_redirect_mappings(self, start_token=None):
+        return iter(())            # no redirects in this fixture
     def article_count(self):
         return 2
 

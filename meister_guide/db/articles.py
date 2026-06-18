@@ -61,6 +61,14 @@ class ArticlesRepo:
         return Article(row[0], row[1], zlib.decompress(row[2]).decode("utf-8"),
                        row[3], row[4])
 
+    def pageid_by_title(self, title) -> Optional[int]:
+        """Exact-title lookup used by redirect ingestion to map a redirect's
+        target title onto a stored article's pageid."""
+        row = self._conn.execute(
+            "SELECT pageid FROM articles WHERE title = ?", (title,)
+        ).fetchone()
+        return row[0] if row else None
+
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
 
@@ -114,6 +122,19 @@ class ArticlesRepo:
             for rowid, rank in self._conn.execute(
                 "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
                 "ORDER BY rank LIMIT ?",
+                (fts, candidate_pool),
+            ).fetchall():
+                if rowid not in best_rank or rank < best_rank[rowid]:
+                    best_rank[rowid] = rank
+            # Redirect aliases: match the same query against alias titles and
+            # resolve each to its target article's rowid, folding it into the
+            # same pool. This is the only way a redirect-only topic (e.g. "Wolf",
+            # which has no article of its own) reaches retrieval at all.
+            for rowid, rank in self._conn.execute(
+                "SELECT a.id, rf.rank FROM redirects_fts rf "
+                "JOIN redirects r ON r.id = rf.rowid "
+                "JOIN articles a ON a.pageid = r.target_pageid "
+                "WHERE redirects_fts MATCH ? ORDER BY rf.rank LIMIT ?",
                 (fts, candidate_pool),
             ).fetchall():
                 if rowid not in best_rank or rank < best_rank[rowid]:

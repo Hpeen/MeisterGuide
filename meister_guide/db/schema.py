@@ -73,3 +73,29 @@ PHASE3_TABLES = [
     )
     """,
 ]
+
+# Phase 6: redirect aliases. minecraft.wiki has many popular topics (e.g. "Wolf",
+# "Redstone") that exist only as redirects to a canonical article; Phase 3's
+# allpages ingest stored real pages only, so those queries returned nothing.
+# `redirects` maps a redirect title -> the target article's pageid, and
+# redirects_fts (contentless, rowid = redirects.id) lets search match the alias
+# title and resolve to the target article. redirect_state mirrors scrape_state so
+# the redirect walk resumes after an interruption.
+PHASE6_TABLES = [
+    """
+    CREATE TABLE IF NOT EXISTS redirects (
+        id INTEGER PRIMARY KEY,
+        title TEXT UNIQUE NOT NULL,
+        target_pageid INTEGER NOT NULL
+    )
+    """,
+    "CREATE VIRTUAL TABLE IF NOT EXISTS redirects_fts USING fts5(title, content='')",
+    """
+    CREATE TABLE IF NOT EXISTS redirect_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        continue_token TEXT,
+        done INTEGER NOT NULL DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+]

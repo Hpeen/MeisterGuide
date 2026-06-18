@@ -5,8 +5,10 @@ from PySide6.QtCore import QObject, Signal
 
 from meister_guide.db.database import connect, init_db
 from meister_guide.db.articles import ArticlesRepo, ScrapeStateRepo
+from meister_guide.db.redirects import RedirectsRepo, RedirectStateRepo
 from meister_guide.scraper.wiki_client import WikiClient
 from meister_guide.scraper.ingest import run_ingest
+from meister_guide.scraper.redirect_ingest import run_redirect_ingest
 
 
 class IngestWorker(QObject):
@@ -29,12 +31,27 @@ class IngestWorker(QObject):
             conn = connect(self._db_path)
             init_db(conn)
             client = self._client or WikiClient()
+            articles_repo = ArticlesRepo(conn)
             run_ingest(
                 client,
-                ArticlesRepo(conn),
+                articles_repo,
                 ScrapeStateRepo(conn),
                 conn,
                 progress_cb=lambda d, t: self.progress.emit(d, t or 0),
+                should_cancel=lambda: self._cancel,
+            )
+            if self._cancel:
+                return
+            # Redirect aliases run second: they resolve against the articles just
+            # stored, so popular redirect-only topics ("Wolf", "Redstone") become
+            # reachable in chat. Progress is a running count (total unknown).
+            run_redirect_ingest(
+                client,
+                RedirectsRepo(conn),
+                articles_repo,
+                RedirectStateRepo(conn),
+                conn,
+                progress_cb=lambda d: self.progress.emit(d, 0),
                 should_cancel=lambda: self._cancel,
             )
         except Exception as err:

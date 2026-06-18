@@ -128,6 +128,68 @@ def test_default_delay_is_zero():
     assert WikiClient(http_get=lambda p: {}).__dict__["_delay"] == 0
 
 
+def test_iter_redirect_mappings_enumerates_and_resolves():
+    def fake_get(params):
+        if params.get("list") == "allpages":
+            assert params.get("apfilterredir") == "redirects"
+            return {"query": {"allpages": [
+                {"pageid": 1, "title": "Wolf"},
+                {"pageid": 2, "title": "Doggo"},
+            ]}}
+        if "titles" in params:
+            assert params.get("redirects") == 1
+            return {"query": {"redirects": [
+                {"from": "Wolf", "to": "Wolf (mob)"},
+                {"from": "Doggo", "to": "Wolf (mob)", "tofragment": "Breeding"},
+            ]}}
+        raise AssertionError(params)
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    batches = list(client.iter_redirect_mappings())
+    assert len(batches) == 1
+    mappings, token = batches[0]
+    assert token is None
+    assert ("Wolf", "Wolf (mob)") in mappings
+    assert ("Doggo", "Wolf (mob)") in mappings
+
+
+def test_iter_redirect_mappings_follows_continue_token():
+    allpages = [
+        {"query": {"allpages": [{"title": "Wolf"}]},
+         "continue": {"apcontinue": "R", "continue": "-||"}},
+        {"query": {"allpages": [{"title": "Redstone"}]}},
+    ]
+    resolves = {
+        "Wolf": [{"from": "Wolf", "to": "Wolf (mob)"}],
+        "Redstone": [{"from": "Redstone", "to": "Redstone Dust"}],
+    }
+    seen = []
+    def fake_get(params):
+        if params.get("list") == "allpages":
+            seen.append(dict(params))
+            return allpages.pop(0)
+        return {"query": {"redirects": resolves[params["titles"]]}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    batches = list(client.iter_redirect_mappings())
+    assert [t for _, t in batches][0] == '{"apcontinue": "R", "continue": "-||"}'
+    assert batches[-1][1] is None
+    assert seen[1].get("apcontinue") == "R"   # carried the continuation
+    all_maps = [m for ms, _ in batches for m in ms]
+    assert ("Wolf", "Wolf (mob)") in all_maps
+    assert ("Redstone", "Redstone Dust") in all_maps
+
+
+def test_iter_redirect_mappings_skips_resolve_when_batch_empty():
+    calls = []
+    def fake_get(params):
+        calls.append(params.get("list") or "resolve")
+        if params.get("list") == "allpages":
+            return {"query": {"allpages": []}}
+        raise AssertionError("must not resolve an empty batch")
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    assert list(client.iter_redirect_mappings()) == [([], None)]
+    assert calls == ["allpages"]
+
+
 def test_badcontinue_raises_invalid_continue_error():
     # A stale/invalid resume token must be distinguishable from a generic API
     # error so the orchestrator can recover by restarting.

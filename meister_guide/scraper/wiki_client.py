@@ -104,6 +104,57 @@ class WikiClient:
         })
         return data.get("query", {}).get("statistics", {}).get("articles")
 
+    def _redirect_params(self, continue_token):
+        # Enumerate redirect pages in the article namespace. aplimit is held at
+        # 50 to match the per-request title cap of the redirect resolver below,
+        # so one enumeration batch maps to exactly one resolve request.
+        params = {
+            "action": "query", "format": "json",
+            "list": "allpages", "apnamespace": 0,
+            "apfilterredir": "redirects", "aplimit": 50,
+            "maxlag": 5,
+        }
+        if continue_token:
+            params.update(json.loads(continue_token))
+        return params
+
+    @staticmethod
+    def _titles_from_allpages(data):
+        pages = data.get("query", {}).get("allpages", [])
+        return [p["title"] for p in pages if "title" in p]
+
+    def _resolve_redirects(self, titles):
+        """Resolve redirect titles to their target titles in one request via the
+        API's redirect resolver. Returns list of (from_title, to_title)."""
+        if not titles:
+            return []
+        data = self._fetch({
+            "action": "query", "format": "json",
+            "titles": "|".join(titles), "redirects": 1, "maxlag": 5,
+        })
+        out = []
+        for entry in data.get("query", {}).get("redirects", []):
+            frm, to = entry.get("from"), entry.get("to")
+            if frm and to:
+                out.append((frm, to))
+        return out
+
+    def iter_redirect_mappings(self, start_token=None):
+        """Yield (list[(from_title, to_title)], next_token|None) per allpages
+        batch — each batch's redirect titles resolved to their targets in a
+        single follow-up request. Mirrors iter_batches for the orchestrator."""
+        token = start_token
+        while True:
+            data = self._fetch(self._redirect_params(token))
+            mappings = self._resolve_redirects(self._titles_from_allpages(data))
+            cont = data.get("continue")
+            next_token = json.dumps(cont) if cont else None
+            yield mappings, next_token
+            if next_token is None:
+                return
+            token = next_token
+            self._sleep(self._delay)
+
     def iter_batches(self, start_token=None):
         """Yield (list[WikiArticle], next_token|None) per API batch."""
         token = start_token
