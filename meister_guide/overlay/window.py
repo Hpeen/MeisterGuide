@@ -1,6 +1,6 @@
 """The Meister Guide overlay window (Phase 1 shell)."""
 from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QPainter, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QComboBox,
@@ -29,9 +29,6 @@ from meister_guide.overlay.win32_topmost import (
     set_window_topmost,
 )
 from meister_guide.scraper.worker import IngestWorker
-
-_DEFAULT_RECT = QRect(200, 200, 460, 620)
-
 
 class _PanelWidget(QWidget):
     def __init__(self):
@@ -87,7 +84,7 @@ class OverlayWindow(QWidget):
         self._chat_repo = chat_repo
         self._ollama = ollama_client
         self._tabs = None
-        self._guides_index = 1
+        self._guides_index = 0
         self._chat_session = None
         self._chat_view = []        # list of {"role", "text", "sources"}
         self._chat_thread = None
@@ -179,18 +176,6 @@ class OverlayWindow(QWidget):
         self._rebuild_game_menu()
         self._update_game_pill()
         return header
-
-    def _build_disclaimer(self) -> QWidget:
-        # The overlay can only sit above games run in windowed / borderless mode;
-        # exclusive fullscreen (e.g. Minecraft's F11) renders past it.
-        bar = QLabel(
-            "Tip: run your game in windowed or borderless mode so the overlay "
-            "can show on top — exclusive fullscreen will cover it."
-        )
-        bar.setObjectName("Disclaimer")
-        bar.setWordWrap(True)
-        bar.setContentsMargins(12, 6, 12, 6)
-        return bar
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
@@ -681,6 +666,8 @@ class OverlayWindow(QWidget):
         if self._hotkey is not None:
             applied = self._hotkey.rebind(spec)
         self._settings_repo.set("hotkey", spec)
+        if hasattr(self, "hotkey_chip"):
+            self.hotkey_chip.setText(spec)
         self.set_hotkey_status.setText(
             f"Hotkey set to {spec}." if applied else
             f"Saved {spec}, but the OS rejected it (already in use?) — it'll apply next launch.")
@@ -786,7 +773,6 @@ class OverlayWindow(QWidget):
 
     # ---- docked geometry ------------------------------------------------
     def _current_screen_geometry(self):
-        from PySide6.QtGui import QGuiApplication
         scr = QGuiApplication.screenAt(self.geometry().center()) \
             or QGuiApplication.primaryScreen()
         return scr.availableGeometry()
@@ -872,8 +858,8 @@ class OverlayWindow(QWidget):
             force_window_to_front(int(self.winId()))
 
     def hideEvent(self, event):
-        # Covers Alt+Insert, the tray toggle, and the footer minimize/close
-        # buttons — all routes that hide the overlay restore the game.
+        # Covers Alt+Insert and the tray toggle — all routes that hide the
+        # overlay restore the game.
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
         if self._chat_worker is not None:
