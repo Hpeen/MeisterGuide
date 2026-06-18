@@ -137,28 +137,47 @@ class OverlayWindow(QWidget):
         col.addWidget(self._build_footer())
 
     def _build_header(self) -> QWidget:
+        from PySide6.QtWidgets import QToolButton, QMenu
         header = QWidget()
         header.setObjectName("Header")
-        header.setFixedHeight(40)
-        lay = QHBoxLayout(header)
-        lay.setContentsMargins(12, 0, 12, 0)
+        lay = QVBoxLayout(header)
+        lay.setContentsMargins(20, 16, 20, 12)
+        lay.setSpacing(9)
 
-        title = QLabel("⚒ Meister Guide")  # crossed hammers
-        title.setObjectName("HeaderTitle")
-        lay.addWidget(title)
-        lay.addStretch(1)
+        row1 = QHBoxLayout()
+        word = QLabel("Meister")
+        word.setObjectName("Wordmark")
+        sub = QLabel("guide")
+        sub.setObjectName("WordmarkSub")
+        row1.addWidget(word)
+        row1.addWidget(sub)
+        row1.addStretch(1)
+        self.hotkey_chip = QLabel(
+            self._settings_repo.get("hotkey", "Alt+Insert")
+            if self._settings_repo else "Alt+Insert")
+        self.hotkey_chip.setObjectName("HotkeyChip")
+        row1.addWidget(self.hotkey_chip)
+        close = QPushButton("✕")
+        close.setObjectName("CloseBtn")
+        close.setFixedSize(28, 28)
+        close.clicked.connect(self.hide)
+        row1.addWidget(close)
+        lay.addLayout(row1)
 
-        self.game_indicator = QLabel("● No game detected")
-        self.game_indicator.setObjectName("GameIndicator")
-        lay.addWidget(self.game_indicator)
-
-        self.game_dropdown = QComboBox()
-        self.game_dropdown.setObjectName("GameDropdown")
-        self.game_dropdown.currentIndexChanged.connect(self._on_manual_pick)
-        lay.addWidget(self.game_dropdown)
-        self._populate_dropdown()
+        row2 = QHBoxLayout()
+        row2.setSpacing(7)
+        self.game_pill = QToolButton()
+        self.game_pill.setObjectName("GamePill")
+        self.game_pill.setPopupMode(QToolButton.InstantPopup)
+        self._game_menu = QMenu(self.game_pill)
+        self.game_pill.setMenu(self._game_menu)
+        row2.addWidget(self.game_pill)
+        row2.addStretch(1)
+        lay.addLayout(row2)
 
         self._header = header
+        self._rebuild_game_menu()
+        self._update_game_pill()
         return header
 
     def _build_disclaimer(self) -> QWidget:
@@ -719,41 +738,42 @@ class OverlayWindow(QWidget):
         )
 
     # ---- game selection -------------------------------------------------
-    def _populate_dropdown(self):
-        self.game_dropdown.blockSignals(True)
-        self.game_dropdown.clear()
-        self.game_dropdown.addItem("Select a game...", None)
+    def _rebuild_game_menu(self):
+        if not hasattr(self, "_game_menu"):
+            return
+        self._game_menu.clear()
         for game in self._games:
-            self.game_dropdown.addItem(game.name, game.id)
-        self.game_dropdown.blockSignals(False)
+            act = self._game_menu.addAction(game.name)
+            act.triggered.connect(lambda _=False, gid=game.id:
+                                  self._on_manual_pick_game(gid))
+
+    def _update_game_pill(self):
+        if self.active_game is None:
+            self.game_pill.setText("●  No game detected")
+            self.game_pill.setProperty("detected", False)
+        else:
+            self.game_pill.setText(f"●  {self.active_game.name} detected")
+            self.game_pill.setProperty("detected", True)
+        # re-polish so the [detected="true"] QSS state applies
+        self.game_pill.style().unpolish(self.game_pill)
+        self.game_pill.style().polish(self.game_pill)
+
+    def _on_manual_pick_game(self, game_id):
+        chosen = next((g for g in self._games if g.id == game_id), None)
+        if chosen is not None:
+            self._set_active(chosen, manual=True)
 
     def set_games(self, games):
         self._games = list(games)
-        self._populate_dropdown()
+        self._rebuild_game_menu()
 
     def _set_active(self, game, manual: bool):
         self.active_game = game
-        if game is None:
-            self.game_indicator.setText("● No game detected")
-            self.game_dropdown.setVisible(True)
-        else:
-            suffix = " (manual)" if manual else ""
-            self.game_indicator.setText(f"● Playing: {game.name}{suffix}")
-            # Hide the picker on auto-detection; keep it on a manual pick so the
-            # user can re-choose.
-            self.game_dropdown.setVisible(manual)
+        self._update_game_pill()
 
     def set_detected_game(self, game):
         """Called by the detector. A detection always wins over a manual pick."""
         self._set_active(game, manual=False)
-
-    def _on_manual_pick(self, index):
-        game_id = self.game_dropdown.itemData(index)
-        if game_id is None:
-            return
-        chosen = next((g for g in self._games if g.id == game_id), None)
-        if chosen is not None:
-            self._set_active(chosen, manual=True)
 
     # ---- docked geometry ------------------------------------------------
     def _current_screen_geometry(self):

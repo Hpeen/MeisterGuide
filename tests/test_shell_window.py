@@ -5,6 +5,7 @@ from meister_guide.overlay.window import OverlayWindow
 from meister_guide.db.database import connect, init_db
 from meister_guide.db.settings import SettingsRepo
 from meister_guide.config.dock import PANEL_WIDTH, MARGIN
+from meister_guide.db.games import Game  # dataclass: id, name, process_names, wiki_url
 
 
 class OllamaStub:
@@ -43,3 +44,25 @@ def test_snap_on_release_persists_edge(tmp_path):
     assert w._dock_edge == "left"
     assert repo.get("dock_edge") == "left"
     assert w.x() == MARGIN
+
+
+def _games():
+    return [Game(id=1, name="Minecraft", process_names=["javaw.exe"], wiki_url=None),
+            Game(id=2, name="Terraria", process_names=["terraria.exe"], wiki_url=None)]
+
+
+def test_detected_game_updates_pill(tmp_path):
+    w, repo = _window(tmp_path)
+    w.set_games(_games())
+    w.set_detected_game(_games()[0])
+    assert "Minecraft" in w.game_pill.text()
+    w.set_detected_game(None)
+    assert "No game" in w.game_pill.text()
+
+
+def test_game_pill_menu_manual_pick(tmp_path):
+    w, repo = _window(tmp_path)
+    w.set_games(_games())
+    w._on_manual_pick_game(2)            # what the menu action calls
+    assert w.active_game is not None and w.active_game.id == 2
+    assert "Terraria" in w.game_pill.text()
