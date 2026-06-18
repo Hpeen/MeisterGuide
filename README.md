@@ -14,8 +14,8 @@ A rustic gaming companion overlay with offline guides and a local AI assistant
 
 ## Showing the overlay over a game
 Run your game in **windowed** or **borderless windowed** mode (not exclusive /
-"Fullscreen"). The overlay then appears on top, and the game pauses behind it —
-press `Alt + Insert` again to dismiss it and return to the game.
+"Fullscreen"). The overlay then appears on top, and the game pauses behind it.
+Press `Alt + Insert` again to dismiss it and return to the game.
 
 True exclusive fullscreen is not supported: that mode renders straight to the
 GPU and minimizes itself the moment it loses focus, so any normal window (ours
@@ -27,7 +27,7 @@ Sodium/OptiFine borderless) for a seamless full-screen feel.
 Open the Guides tab and click **Update guides** once to download minecraft.wiki
 article text into a local database (~40 min, ~80 MB). After that, search works
 fully offline. The download uses the MediaWiki API politely (identified
-User-Agent, `maxlag`-guarded, resumable) and stores only plain text — no images.
+User-Agent, `maxlag`-guarded, resumable) and stores only plain text, no images.
 It runs in the background with a progress bar and resumes if interrupted, so the
 one-time wait is unattended.
 
