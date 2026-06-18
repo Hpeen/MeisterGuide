@@ -1,6 +1,6 @@
 from meister_guide.db.database import connect, init_db
 from meister_guide.db.settings import (
-    SettingsRepo, BACKEND_OLLAMA, BACKEND_CLAUDE,
+    SettingsRepo, BACKEND_OLLAMA, BACKEND_CLAUDE, BACKEND_AUTO,
 )
 
 
@@ -12,7 +12,7 @@ def _repo(tmp_path):
 
 def test_defaults_when_unset(tmp_path):
     repo = _repo(tmp_path)
-    assert repo.chat_backend() == BACKEND_OLLAMA   # offline by default
+    assert repo.chat_backend() == BACKEND_AUTO   # online-first, local fallback
     assert repo.claude_api_key() == ""
     assert repo.claude_model() == "claude-opus-4-8"
 

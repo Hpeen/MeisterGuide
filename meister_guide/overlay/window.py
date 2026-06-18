@@ -14,7 +14,7 @@ from meister_guide.ai.prompt import build_messages
 from meister_guide.ai.ollama_client import OllamaUnavailable, pick_best_model
 from meister_guide.ai.claude_client import ClaudeClient, AVAILABLE_MODELS
 from meister_guide.ai.worker import ChatStreamWorker
-from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE
+from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE, BACKEND_AUTO
 from meister_guide.input.hotkey import parse_hotkey
 
 from meister_guide.config.geometry import save_geometry, restore_geometry
@@ -60,6 +60,12 @@ class OverlayWindow(QWidget):
         self._chat_worker = None
         self._chat_cancelled = False  # stream stopped by hide/quit, not Ollama
         self._model = None
+        # Ordered backend attempts for the current settings, e.g.
+        # [(claude, model, "online"), (ollama, model, "local")]. The first is the
+        # primary; later entries are silent offline fallbacks.
+        self._backend_chain = []
+        self._attempt = 0             # index into _backend_chain in flight
+        self._pending_messages = None  # so a fallback can replay the same turn
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -181,44 +187,79 @@ class OverlayWindow(QWidget):
 
     # ---- chat: backend selection + state ---------------------------------
     def _refresh_chat_backend(self):
-        """Choose the chat backend from settings, set self._chat_client +
-        self._model, and update the input enabled/disabled state + status. Called
-        on startup and whenever the settings panel saves."""
-        backend = (self._settings_repo.chat_backend()
-                   if self._settings_repo is not None else BACKEND_OLLAMA)
-        if backend == BACKEND_CLAUDE:
-            self._use_claude_backend()
-        else:
-            self._use_ollama_backend()
+        """Build the ordered backend chain from settings, set the primary
+        self._chat_client + self._model, and update the input enabled/disabled
+        state + status. Called on startup and whenever settings are saved.
 
-    def _use_claude_backend(self):
+        Modes: Always online -> [Claude]; Always local -> [Ollama];
+        Auto -> [Claude (if a key is set)] then [Ollama (if available)], so a
+        keyless install behaves exactly like the old local-only default and a
+        keyed one prefers Claude with Ollama as a silent offline backup."""
+        mode = (self._settings_repo.chat_backend()
+                if self._settings_repo is not None else BACKEND_AUTO)
+
+        chain, reason = [], "AI chat is unavailable."
+        if mode == BACKEND_CLAUDE:
+            attempt, reason = self._claude_attempt()
+            if attempt:
+                chain.append(attempt)
+        elif mode == BACKEND_OLLAMA:
+            attempt, reason = self._ollama_attempt()
+            if attempt:
+                chain.append(attempt)
+        else:  # BACKEND_AUTO
+            claude, _ = self._claude_attempt()
+            if claude:
+                chain.append(claude)
+            ollama, reason = self._ollama_attempt()
+            if ollama:
+                chain.append(ollama)
+
+        self._backend_chain = chain
+        self._attempt = 0
+        if not chain:
+            self._chat_client = None
+            self._model = None
+            self._set_chat_enabled(False, reason)
+            return
+        client, model, _label = chain[0]
+        self._chat_client = client
+        self._model = model
+        self._set_chat_enabled(True, self._backend_status(0))
+
+    def _claude_attempt(self):
+        """Returns ((client, model, "online"), None) if a key is set, else
+        (None, reason)."""
         key = self._settings_repo.claude_api_key() if self._settings_repo else ""
         if not key:
-            self._chat_client = None
-            self._set_chat_enabled(
-                False, "Enter a Claude API key in Settings to use the Claude backend.")
-            return
-        self._model = self._settings_repo.claude_model()
-        self._chat_client = self._claude_factory(key)
-        self._set_chat_enabled(True, f"Backend: Claude · {self._model}{self._guides_note()}")
+            return None, "Enter a Claude API key in Settings to use the Claude backend."
+        model = self._settings_repo.claude_model()
+        return (self._claude_factory(key), model, "online"), None
 
-    def _use_ollama_backend(self):
-        self._chat_client = self._ollama
+    def _ollama_attempt(self):
+        """Returns ((client, model, "local"), None) if Ollama is reachable with a
+        model installed, else (None, reason)."""
         if self._ollama is None:
-            self._set_chat_enabled(False, "AI chat is unavailable.")
-            return
+            return None, "AI chat is unavailable."
         try:
             models = self._ollama.list_model_info()
         except OllamaUnavailable:
-            self._set_chat_enabled(False,
-                "Meister needs Ollama running at localhost:11434.")
-            return
-        self._model = pick_best_model(models)
-        if self._model is None:
-            self._set_chat_enabled(False,
-                "No Ollama model installed. Run: ollama pull llama3")
-            return
-        self._set_chat_enabled(True, f"Model: {self._model}{self._guides_note()}")
+            return None, "Meister needs Ollama running at localhost:11434."
+        model = pick_best_model(models)
+        if model is None:
+            return None, "No Ollama model installed. Run: ollama pull llama3"
+        return (self._ollama, model, "local"), None
+
+    def _backend_status(self, i):
+        """Status line for backend attempt i (the one about to be used)."""
+        _client, model, label = self._backend_chain[i]
+        if label == "online":
+            base = f"Backend: Claude · {model}"
+            if len(self._backend_chain) > 1:
+                base += "  (offline backup ready)"
+        else:
+            base = f"Model: {model}"
+        return base + self._guides_note()
 
     def _guides_note(self):
         if self._articles_repo is not None and self._articles_repo.count() == 0:
@@ -278,12 +319,21 @@ class OverlayWindow(QWidget):
 
         history = [(m["role"], m["text"]) for m in self._chat_view if m["text"]]
         self._begin_exchange(question, sources)
-        messages = build_messages(question, passages, history)
+        self._pending_messages = build_messages(question, passages, history)
+        self._attempt = 0
+        self._start_chat_worker()
 
+    def _start_chat_worker(self):
+        """Run self._pending_messages on the current backend attempt. Factored
+        out of _on_send so a failed primary can replay the same turn on the next
+        backend in the chain."""
+        client, model, _label = self._backend_chain[self._attempt]
+        self._chat_client = client
+        self._model = model
         self.chat_input.setEnabled(False)
         self.chat_send_btn.setEnabled(False)
         self._chat_thread = QThread(self)
-        self._chat_worker = ChatStreamWorker(self._chat_client, self._model, messages)
+        self._chat_worker = ChatStreamWorker(client, model, self._pending_messages)
         self._chat_worker.moveToThread(self._chat_thread)
         self._chat_thread.started.connect(self._chat_worker.run)
         self._chat_worker.token.connect(self._on_chat_token)
@@ -309,6 +359,22 @@ class OverlayWindow(QWidget):
         self._teardown_chat_thread()
 
     def _on_chat_error(self, message):
+        # If the primary backend failed before streaming a single token (e.g. no
+        # internet / Claude API error) and a backup backend is queued, retry the
+        # same question on it silently rather than surfacing the error.
+        nothing_streamed = bool(
+            self._chat_view and self._chat_view[-1]["role"] == "assistant"
+            and self._chat_view[-1]["text"] == "")
+        if (not self._chat_cancelled and nothing_streamed
+                and self._attempt + 1 < len(self._backend_chain)):
+            self._stop_chat_thread()
+            self._attempt += 1
+            _client, model, _label = self._backend_chain[self._attempt]
+            self.chat_status.setText(
+                f"Online backend unavailable — answering locally with {model}.")
+            self._start_chat_worker()
+            return
+
         if self._chat_view and self._chat_view[-1]["role"] == "assistant":
             partial = self._chat_view[-1]["text"]
             self._chat_view[-1]["text"] = (partial + f"\n\n[error: {message}]").strip()
@@ -318,12 +384,17 @@ class OverlayWindow(QWidget):
         self._render_chat()
         self._teardown_chat_thread()
 
-    def _teardown_chat_thread(self):
+    def _stop_chat_thread(self):
+        """Quit + join the worker thread without touching the input controls, so
+        a fallback attempt can start a fresh thread while input stays disabled."""
         if self._chat_thread is not None:
             self._chat_thread.quit()
             self._chat_thread.wait(5000)
         self._chat_thread = None
         self._chat_worker = None
+
+    def _teardown_chat_thread(self):
+        self._stop_chat_thread()
         self.chat_input.setEnabled(True)
         self.chat_send_btn.setEnabled(True)
 
@@ -484,10 +555,12 @@ class OverlayWindow(QWidget):
         # --- chat backend ---
         col.addWidget(QLabel("<b>AI chat backend</b>"))
         self.set_backend = QComboBox()
-        self.set_backend.addItem("Local (Ollama) — offline & private", BACKEND_OLLAMA)
-        self.set_backend.addItem("Claude API — stronger answers", BACKEND_CLAUDE)
-        if self._settings_repo.chat_backend() == BACKEND_CLAUDE:
-            self.set_backend.setCurrentIndex(1)
+        self.set_backend.addItem("Auto — online when possible, offline backup", BACKEND_AUTO)
+        self.set_backend.addItem("Always online (Claude)", BACKEND_CLAUDE)
+        self.set_backend.addItem("Always local (Ollama) — offline & private", BACKEND_OLLAMA)
+        idx = self.set_backend.findData(self._settings_repo.chat_backend())
+        if idx >= 0:
+            self.set_backend.setCurrentIndex(idx)
         col.addWidget(self.set_backend)
 
         col.addWidget(QLabel("Claude API key"))
