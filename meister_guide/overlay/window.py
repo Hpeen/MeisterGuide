@@ -194,9 +194,10 @@ class OverlayWindow(QWidget):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
-        tabs.addTab(self._build_chat_tab(), "Chat")
-        self._guides_index = tabs.addTab(self._build_guides_tab(), "Guides")
-        tabs.addTab(self._build_settings_tab(), "Settings")
+        self._guides_index = tabs.addTab(self._build_guides_tab(), "Wiki")
+        tabs.addTab(self._build_chat_tab(), "Ask Meister")
+        tabs.addTab(self._build_settings_tab(), "⚙")
+        tabs.setCurrentIndex(0)   # default landing = Wiki
         self._tabs = tabs
         return tabs
 
@@ -275,11 +276,15 @@ class OverlayWindow(QWidget):
             self._chat_client = None
             self._model = None
             self._set_chat_enabled(False, reason)
+            if hasattr(self, "footer_note"):
+                self._refresh_footer()
             return
         client, model, _label = chain[0]
         self._chat_client = client
         self._model = model
         self._set_chat_enabled(True, self._backend_status(0))
+        if hasattr(self, "footer_note"):
+            self._refresh_footer()
 
     def _claude_attempt(self):
         """Returns ((client, model, "online"), None) if a key is set, else
@@ -683,24 +688,28 @@ class OverlayWindow(QWidget):
     def _build_footer(self) -> QWidget:
         footer = QWidget()
         footer.setObjectName("Footer")
-        footer.setFixedHeight(32)
+        footer.setFixedHeight(34)
         lay = QHBoxLayout(footer)
-        lay.setContentsMargins(12, 0, 8, 0)
-
-        hint = QLabel("Alt+Insert to hide")
-        lay.addWidget(hint)
+        lay.setContentsMargins(18, 0, 18, 0)
+        self.footer_note = QLabel("")
+        self.footer_note.setObjectName("FooterNote")
+        lay.addWidget(self.footer_note)
         lay.addStretch(1)
-
-        minimize = QPushButton("–")
-        minimize.setFixedWidth(28)
-        minimize.clicked.connect(self.hide)
-        lay.addWidget(minimize)
-
-        close = QPushButton("✕")
-        close.setFixedWidth(28)
-        close.clicked.connect(self.hide)
-        lay.addWidget(close)
+        stack = QLabel("PySide6")
+        stack.setObjectName("FooterStack")
+        lay.addWidget(stack)
+        self._refresh_footer()
         return footer
+
+    def _refresh_footer(self):
+        backend = (self._settings_repo.chat_backend()
+                   if self._settings_repo is not None else BACKEND_AUTO)
+        key = (self._settings_repo.claude_api_key()
+               if self._settings_repo is not None else "")
+        online = backend == BACKEND_CLAUDE or (backend == BACKEND_AUTO and key)
+        self.footer_note.setText(
+            "local-first · optional online" if online
+            else "runs locally · no account · no cloud")
 
     # ---- guides ---------------------------------------------------------
     def _on_search(self, text):
