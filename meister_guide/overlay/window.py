@@ -12,7 +12,10 @@ import sys
 from meister_guide.ai.passage import relevant_passage
 from meister_guide.ai.prompt import build_messages
 from meister_guide.ai.ollama_client import OllamaUnavailable, pick_best_model
+from meister_guide.ai.claude_client import ClaudeClient, AVAILABLE_MODELS
 from meister_guide.ai.worker import ChatStreamWorker
+from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE
+from meister_guide.input.hotkey import parse_hotkey
 
 from meister_guide.config.geometry import save_geometry, restore_geometry
 from meister_guide.overlay.win32_topmost import (
@@ -28,9 +31,14 @@ _DEFAULT_RECT = QRect(200, 200, 460, 620)
 
 class OverlayWindow(QWidget):
     def __init__(self, settings: QSettings, games=None, articles_repo=None,
-                 db_path=None, chat_repo=None, ollama_client=None):
+                 db_path=None, chat_repo=None, ollama_client=None,
+                 settings_repo=None, hotkey=None, claude_factory=ClaudeClient):
         super().__init__()
         self._settings = settings
+        self._settings_repo = settings_repo
+        self._hotkey = hotkey
+        self._claude_factory = claude_factory
+        self._chat_client = None     # the backend actually used for chat sends
         self._drag_offset = None
         self._games = list(games) if games else []
         self.active_game = None
@@ -128,10 +136,7 @@ class OverlayWindow(QWidget):
         tabs = QTabWidget()
         tabs.addTab(self._build_chat_tab(), "Chat")
         self._guides_index = tabs.addTab(self._build_guides_tab(), "Guides")
-        settings = QLabel("Settings — coming in a later phase")
-        settings.setAlignment(Qt.AlignCenter)
-        settings.setContentsMargins(16, 16, 16, 16)
-        tabs.addTab(settings, "Settings")
+        tabs.addTab(self._build_settings_tab(), "Settings")
         self._tabs = tabs
         return tabs
 
@@ -171,12 +176,34 @@ class OverlayWindow(QWidget):
         col.addLayout(row)
 
         self._refresh_history()
-        self._detect_ollama()
+        self._refresh_chat_backend()
         return page
 
-    # ---- chat: model detection + state -----------------------------------
-    def _detect_ollama(self):
-        """Pick a model and set the input enabled/disabled state + status text."""
+    # ---- chat: backend selection + state ---------------------------------
+    def _refresh_chat_backend(self):
+        """Choose the chat backend from settings, set self._chat_client +
+        self._model, and update the input enabled/disabled state + status. Called
+        on startup and whenever the settings panel saves."""
+        backend = (self._settings_repo.chat_backend()
+                   if self._settings_repo is not None else BACKEND_OLLAMA)
+        if backend == BACKEND_CLAUDE:
+            self._use_claude_backend()
+        else:
+            self._use_ollama_backend()
+
+    def _use_claude_backend(self):
+        key = self._settings_repo.claude_api_key() if self._settings_repo else ""
+        if not key:
+            self._chat_client = None
+            self._set_chat_enabled(
+                False, "Enter a Claude API key in Settings to use the Claude backend.")
+            return
+        self._model = self._settings_repo.claude_model()
+        self._chat_client = self._claude_factory(key)
+        self._set_chat_enabled(True, f"Backend: Claude · {self._model}{self._guides_note()}")
+
+    def _use_ollama_backend(self):
+        self._chat_client = self._ollama
         if self._ollama is None:
             self._set_chat_enabled(False, "AI chat is unavailable.")
             return
@@ -191,10 +218,12 @@ class OverlayWindow(QWidget):
             self._set_chat_enabled(False,
                 "No Ollama model installed. Run: ollama pull llama3")
             return
-        note = ""
+        self._set_chat_enabled(True, f"Model: {self._model}{self._guides_note()}")
+
+    def _guides_note(self):
         if self._articles_repo is not None and self._articles_repo.count() == 0:
-            note = "  (No guides loaded yet — run Update guides for better answers.)"
-        self._set_chat_enabled(True, f"Model: {self._model}{note}")
+            return "  (No guides loaded yet — run Update guides for better answers.)"
+        return ""
 
     def _set_chat_enabled(self, enabled, status):
         self.chat_input.setEnabled(enabled)
@@ -254,7 +283,7 @@ class OverlayWindow(QWidget):
         self.chat_input.setEnabled(False)
         self.chat_send_btn.setEnabled(False)
         self._chat_thread = QThread(self)
-        self._chat_worker = ChatStreamWorker(self._ollama, self._model, messages)
+        self._chat_worker = ChatStreamWorker(self._chat_client, self._model, messages)
         self._chat_worker.moveToThread(self._chat_thread)
         self._chat_thread.started.connect(self._chat_worker.run)
         self._chat_worker.token.connect(self._on_chat_token)
@@ -440,6 +469,89 @@ class OverlayWindow(QWidget):
             self._ingest_thread.wait()
         self._ingest_thread = None
         self._ingest_worker = None
+
+    # ---- settings -------------------------------------------------------
+    def _build_settings_tab(self) -> QWidget:
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(16, 16, 16, 16)
+        col.setSpacing(10)
+        if self._settings_repo is None:
+            col.addWidget(QLabel("Settings unavailable."))
+            col.addStretch(1)
+            return page
+
+        # --- chat backend ---
+        col.addWidget(QLabel("<b>AI chat backend</b>"))
+        self.set_backend = QComboBox()
+        self.set_backend.addItem("Local (Ollama) — offline & private", BACKEND_OLLAMA)
+        self.set_backend.addItem("Claude API — stronger answers", BACKEND_CLAUDE)
+        if self._settings_repo.chat_backend() == BACKEND_CLAUDE:
+            self.set_backend.setCurrentIndex(1)
+        col.addWidget(self.set_backend)
+
+        col.addWidget(QLabel("Claude API key"))
+        self.set_api_key = QLineEdit(self._settings_repo.claude_api_key())
+        self.set_api_key.setEchoMode(QLineEdit.Password)
+        self.set_api_key.setPlaceholderText("sk-ant-…  (stored locally; only used for the Claude backend)")
+        col.addWidget(self.set_api_key)
+
+        col.addWidget(QLabel("Claude model"))
+        self.set_model = QComboBox()
+        for name in AVAILABLE_MODELS:
+            self.set_model.addItem(name, name)
+        idx = self.set_model.findData(self._settings_repo.claude_model())
+        if idx >= 0:
+            self.set_model.setCurrentIndex(idx)
+        col.addWidget(self.set_model)
+
+        save = QPushButton("Save backend settings")
+        save.clicked.connect(self._on_save_settings)
+        col.addWidget(save)
+        self.set_status = QLabel("")
+        self.set_status.setObjectName("Disclaimer")
+        self.set_status.setWordWrap(True)
+        col.addWidget(self.set_status)
+
+        # --- hotkey ---
+        col.addWidget(QLabel("<b>Show / hide hotkey</b>"))
+        row = QHBoxLayout()
+        self.set_hotkey = QLineEdit(self._settings_repo.get("hotkey", "Alt+Insert"))
+        self.set_hotkey.setPlaceholderText("e.g. Alt+Insert, Ctrl+Shift+M")
+        row.addWidget(self.set_hotkey, 1)
+        apply_hk = QPushButton("Apply")
+        apply_hk.clicked.connect(self._on_apply_hotkey)
+        row.addWidget(apply_hk)
+        col.addLayout(row)
+        self.set_hotkey_status = QLabel("")
+        self.set_hotkey_status.setObjectName("Disclaimer")
+        self.set_hotkey_status.setWordWrap(True)
+        col.addWidget(self.set_hotkey_status)
+
+        col.addStretch(1)
+        return page
+
+    def _on_save_settings(self):
+        self._settings_repo.set("chat_backend", self.set_backend.currentData())
+        self._settings_repo.set("claude_api_key", self.set_api_key.text().strip())
+        self._settings_repo.set("claude_model", self.set_model.currentData())
+        self._refresh_chat_backend()
+        self.set_status.setText("Saved. " + (self.chat_status.text() or ""))
+
+    def _on_apply_hotkey(self):
+        spec = self.set_hotkey.text().strip()
+        try:
+            parse_hotkey(spec)
+        except ValueError as err:
+            self.set_hotkey_status.setText(f"Invalid hotkey: {err}")
+            return
+        applied = True
+        if self._hotkey is not None:
+            applied = self._hotkey.rebind(spec)
+        self._settings_repo.set("hotkey", spec)
+        self.set_hotkey_status.setText(
+            f"Hotkey set to {spec}." if applied else
+            f"Saved {spec}, but the OS rejected it (already in use?) — it'll apply next launch.")
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
