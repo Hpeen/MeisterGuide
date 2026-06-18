@@ -5,7 +5,7 @@ faces inward."""
 from PySide6.QtCore import QRectF, QPointF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QRadialGradient, QPainter, QBrush
 
-CORNER = 13.0
+CORNER = 13.0  # rounded-corner radius — reserved for Phase 11 corner clipping
 SPINE_W = 30
 
 

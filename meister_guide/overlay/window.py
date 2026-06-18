@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
 from PySide6.QtGui import QPainter, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QTabWidget, QFrame, QComboBox,
+    QTabWidget, QComboBox,
     QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
