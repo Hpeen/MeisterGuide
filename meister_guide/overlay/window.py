@@ -362,7 +362,8 @@ class OverlayWindow(QWidget):
 
         sources, passages = [], []
         if self._articles_repo is not None:
-            for hit in self._articles_repo.search_ranked(question, limit=3):
+            for hit in self._articles_repo.search_ranked(
+                    question, limit=3, game_id=self._active_game_id()):
                 article = self._articles_repo.get_article(hit.pageid)
                 if article is None:
                     continue
@@ -548,6 +549,11 @@ class OverlayWindow(QWidget):
     def _on_update_guides(self):
         if self._db_path is None or self._ingest_thread is not None:
             return
+        if self.active_game is not None and self.active_game.name != "Minecraft":
+            # SP1: only Minecraft has a wired bulk corpus; other games fill on-demand later.
+            self.guides_status.setText("On-demand updates for this game are coming soon")
+            return
+        mc_id = next((g.id for g in self._games if g.name == "Minecraft"), None)
         self.guides_update_btn.setEnabled(False)
         self.guides_progress.setVisible(True)
         self.guides_progress.setRange(0, 0)  # indeterminate until first progress
@@ -555,7 +561,7 @@ class OverlayWindow(QWidget):
         self._last_progress_done = None
 
         self._ingest_thread = QThread(self)
-        self._ingest_worker = IngestWorker(str(self._db_path))
+        self._ingest_worker = IngestWorker(str(self._db_path), game_id=mc_id)
         self._ingest_worker.moveToThread(self._ingest_thread)
         self._ingest_thread.started.connect(self._ingest_worker.run)
         self._ingest_worker.progress.connect(self._on_ingest_progress)
@@ -751,7 +757,7 @@ class OverlayWindow(QWidget):
         if self._articles_repo is None:
             self.guides_status.setText("")
             return
-        n = self._articles_repo.count()
+        n = self._articles_repo.count(game_id=self._active_game_id())
         articles_done = True
         redirects_done = True
         if self._scrape_state_repo is not None:
@@ -793,6 +799,16 @@ class OverlayWindow(QWidget):
     def set_games(self, games):
         self._games = list(games)
         self._rebuild_game_menu()
+
+    def _active_game_id(self):
+        if self.active_game is not None:
+            return self.active_game.id
+        # Fall back to the seeded Minecraft game so retrieval still works before
+        # detection sets an active game.
+        for g in self._games:
+            if g.name == "Minecraft":
+                return g.id
+        return None
 
     def _set_active(self, game, manual: bool):
         self.active_game = game

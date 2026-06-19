@@ -12,7 +12,7 @@ class StubRepo:
     def get_article(self, pageid):
         return None
 
-    def count(self):
+    def count(self, game_id=None):
         return 1
 
 

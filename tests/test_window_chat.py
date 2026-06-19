@@ -84,9 +84,9 @@ def test_send_uses_ranked_retrieval(tmp_path, monkeypatch):
     w, chat = _window(tmp_path)
     calls = {}
     real = w._articles_repo.search_ranked
-    def spy(q, limit=3):
+    def spy(q, limit=3, game_id=None):
         calls["q"] = q
-        return real(q, limit=limit)
+        return real(q, limit=limit, game_id=game_id)
     monkeypatch.setattr(w._articles_repo, "search_ranked", spy)
     w.chat_input.setText("how do creepers work?")
     w._on_send()
