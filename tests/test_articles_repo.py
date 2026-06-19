@@ -191,6 +191,20 @@ def test_search_ranked_scoped_to_game(tmp_path):
     assert [h.pageid for h in g2] == [2]
 
 
+def test_search_ranked_redirect_alias_scoped_to_game(tmp_path):
+    from meister_guide.db.redirects import RedirectsRepo
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    # Game 1: a "Wolf" article reachable via the "Doggy" redirect alias.
+    repo.add_article(10, "Wolf", "A wolf is a tameable mob.", 1, "u1", game_id=1)
+    RedirectsRepo(repo._conn).add_redirect("Doggy", 10, game_id=1)
+    repo.add_article(20, "Leviathan", "A leviathan lurks in game two.", 1, "u2", game_id=2)
+    # The alias resolves under its own game, and must NOT leak into another game.
+    assert any(h.pageid == 10 for h in repo.search_ranked("doggy", limit=5, game_id=1))
+    assert all(h.pageid != 10 for h in repo.search_ranked("doggy", limit=5, game_id=2))
+
+
 def test_count_scoped_to_game(tmp_path):
     repo = _repo(tmp_path)
     repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")

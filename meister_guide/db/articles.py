@@ -155,6 +155,8 @@ class ArticlesRepo:
                     (fts, candidate_pool),
                 ).fetchall()
             else:
+                # FTS5 MATCH must name the virtual table itself (`articles_fts`),
+                # not the alias `f` — the aliased form raises a syntax error here.
                 pass_rows = self._conn.execute(
                     "SELECT f.rowid, f.rank FROM articles_fts f "
                     "JOIN articles a ON a.id = f.rowid "
