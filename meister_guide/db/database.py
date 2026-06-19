@@ -28,6 +28,19 @@ def _ensure_column(conn, table, column, decl):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
+def migrate_game_ids(conn: sqlite3.Connection) -> None:
+    """Backfill NULL game_id rows to the seeded Minecraft game. Runs AFTER games
+    are seeded (needs Minecraft's id). Idempotent — only touches NULL rows."""
+    row = conn.execute("SELECT id FROM games WHERE name = 'Minecraft' "
+                       "ORDER BY id LIMIT 1").fetchone()
+    if row is None:
+        return
+    mc_id = row[0]
+    conn.execute("UPDATE articles SET game_id = ? WHERE game_id IS NULL", (mc_id,))
+    conn.execute("UPDATE redirects SET game_id = ? WHERE game_id IS NULL", (mc_id,))
+    conn.commit()
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Create the core + Phase 3 + Phase 6 tables if they don't exist, then add
     any columns missing from an older DB. Idempotent."""

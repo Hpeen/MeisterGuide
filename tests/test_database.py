@@ -60,3 +60,32 @@ def test_init_db_adds_game_id_to_existing_old_shape_db(tmp_path):
     assert "game_id" in cols_a
     assert "game_id" in cols_r
     init_db(conn)                      # idempotent: re-run must not raise
+
+
+def test_migrate_game_ids_backfills_null_rows_to_minecraft(tmp_path):
+    import zlib
+    from meister_guide.db.database import connect, init_db, migrate_game_ids
+    from meister_guide.db.games import GamesRepo
+    conn = connect(tmp_path / "m.db"); init_db(conn)
+    games = GamesRepo(conn); games.seed_defaults()
+    mc = next(g for g in games.list_games() if g.name == "Minecraft")
+    # Add a second game to use as the "already-set" sentinel (FK constraint is ON).
+    other = games.add("OtherGame", [], None)
+    other_id = other.id
+    # Insert rows with NULL game_id (pre-migration shape) + one already-set row.
+    conn.execute("INSERT INTO articles (pageid, title, body_zlib, game_id) "
+                 "VALUES (1, 'A', ?, NULL)", (zlib.compress(b'x'),))
+    conn.execute("INSERT INTO articles (pageid, title, body_zlib, game_id) "
+                 "VALUES (2, 'B', ?, ?)", (zlib.compress(b'y'), other_id))
+    conn.execute("INSERT INTO redirects (title, target_pageid, game_id) "
+                 "VALUES ('R', 1, NULL)")
+    conn.commit()
+
+    migrate_game_ids(conn)
+
+    rows = dict(conn.execute("SELECT pageid, game_id FROM articles"))
+    assert rows[1] == mc.id          # NULL backfilled to Minecraft
+    assert rows[2] == other_id       # already-set row untouched
+    assert conn.execute("SELECT game_id FROM redirects WHERE title='R'").fetchone()[0] == mc.id
+    migrate_game_ids(conn)           # idempotent: no error, no change
+    assert dict(conn.execute("SELECT pageid, game_id FROM articles"))[1] == mc.id
