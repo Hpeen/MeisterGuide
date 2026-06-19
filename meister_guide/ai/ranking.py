@@ -3,6 +3,8 @@
 pages). Pure functions — no DB, no I/O."""
 import re
 
+from meister_guide.scraper.excerpt import deinflect as _deinflect
+
 _DISAMBIG_PENALTY = 100000.0   # sink below everything real
 _NOISE_PENALTY = 5000.0        # version/history/movie pages
 
@@ -24,17 +26,6 @@ def noise_penalty(title):
     if "a minecraft movie" in low or "live event" in low:
         return _NOISE_PENALTY
     return 0.0
-
-
-def _deinflect(word):
-    """Crude English de-inflection (strip trailing 'es'/'s'), matching the rule
-    used by the retrieval recall pass so title scoring and recall agree: a plural
-    query term ('creepers') must match the singular title word ('Creeper')."""
-    if word.endswith("es") and len(word) > 4:
-        return word[:-2]
-    if word.endswith("s") and len(word) > 3:
-        return word[:-1]
-    return word
 
 
 def title_boost(title, terms):

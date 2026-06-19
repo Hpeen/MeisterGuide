@@ -44,3 +44,12 @@ def test_window_bounds_centers_on_match():
 def test_window_bounds_no_match_is_leading_window():
     from meister_guide.scraper.excerpt import window_bounds
     assert window_bounds("alpha beta", "zzz", 5) == (0, 5)
+
+
+def test_deinflect_strips_plurals():
+    from meister_guide.scraper.excerpt import deinflect
+    assert deinflect("spiders") == "spider"
+    assert deinflect("effects") == "effect"
+    assert deinflect("torches") == "torch"   # 'es' rule
+    assert deinflect("ash") == "ash"          # too short to strip
+    assert deinflect("redstone") == "redstone"

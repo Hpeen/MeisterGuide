@@ -8,6 +8,17 @@ import re
 _WORD = re.compile(r"\w+", re.UNICODE)
 
 
+def deinflect(word: str) -> str:
+    """Crude English de-inflection: strip a trailing 'es'/'s' so a plural query
+    term lines up with a singular body/title form. Shared by ranking, the OR
+    recall query, and the cluster-window finder so they all agree."""
+    if word.endswith("es") and len(word) > 4:
+        return word[:-2]
+    if word.endswith("s") and len(word) > 3:
+        return word[:-1]
+    return word
+
+
 def window_bounds(body: str, query: str, width: int) -> tuple:
     """Return (start, end) of a `width`-char window centred on the earliest
     query-term match, or the leading window when nothing matches."""

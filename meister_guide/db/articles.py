@@ -5,7 +5,7 @@ import zlib
 from dataclasses import dataclass
 from typing import Optional
 
-from meister_guide.scraper.excerpt import make_excerpt
+from meister_guide.scraper.excerpt import make_excerpt, deinflect
 from meister_guide.ai.query import clean_query
 from meister_guide.ai.ranking import rerank
 
@@ -172,11 +172,9 @@ class ArticlesRepo:
         seen = set()
         for t in terms:
             candidates_t = [t]
-            # crude English de-inflection: strip trailing 's' / 'es'
-            if t.endswith("es") and len(t) > 4:
-                candidates_t.append(t[:-2])
-            elif t.endswith("s") and len(t) > 3:
-                candidates_t.append(t[:-1])
+            root = deinflect(t)
+            if root != t:
+                candidates_t.append(root)
             for candidate in candidates_t:
                 if candidate not in seen:
                     seen.add(candidate)
