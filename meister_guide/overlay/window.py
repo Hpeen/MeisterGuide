@@ -437,6 +437,10 @@ class OverlayWindow(QWidget):
     def _on_fetch_done(self, question, history):
         self._teardown_fetch_thread()
         if self._chat_cancelled:
+            # Overlay was hidden mid-fetch: restore the input disabled in
+            # _start_fetch so the next show isn't stuck, and don't start a chat.
+            self.chat_input.setEnabled(True)
+            self.chat_send_btn.setEnabled(True)
             return
         sources, passages = self._retrieve(question)
         # Reuse the existing placeholder assistant turn for streaming; just

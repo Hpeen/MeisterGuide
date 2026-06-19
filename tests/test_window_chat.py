@@ -172,6 +172,10 @@ def test_on_fetch_done_answers_from_fetched(tmp_path):
 def test_on_fetch_done_cancelled_does_not_start_chat(tmp_path):
     w, chat = _window_with_wiki_game(tmp_path, with_article=False)
     w._begin_exchange("q", [])
+    w.chat_input.setEnabled(False)      # _start_fetch had disabled the input
+    w.chat_send_btn.setEnabled(False)
     w._chat_cancelled = True            # overlay hidden mid-fetch
     w._on_fetch_done("q", history=[])
     assert w._chat_thread is None       # no answer started after cancellation
+    assert w.chat_input.isEnabled()     # input restored so the next show works
+    assert w.chat_send_btn.isEnabled()
