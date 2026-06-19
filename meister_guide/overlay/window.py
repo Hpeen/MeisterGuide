@@ -28,7 +28,8 @@ from meister_guide.overlay.win32_topmost import (
     is_window_topmost,
     set_window_topmost,
 )
-from meister_guide.scraper.worker import IngestWorker
+from meister_guide.scraper.worker import IngestWorker, OnDemandFetchWorker
+from meister_guide.db.games import api_url_for
 from meister_guide.guides_status import guides_status_text
 from meister_guide.overlay.chat_manager import ChatManagerDialog
 
@@ -87,6 +88,8 @@ class OverlayWindow(QWidget):
         self._redirect_state_repo = redirect_state_repo
         self._ingest_thread = None
         self._ingest_worker = None
+        self._fetch_thread = None
+        self._fetch_worker = None
         self._last_progress_done = None  # to detect a stalled (catching-up) count
         self._chat_repo = chat_repo
         self._ollama = ollama_client
@@ -354,7 +357,9 @@ class OverlayWindow(QWidget):
         self._render_chat()
 
     def _on_send(self):
-        if not self.chat_input.isEnabled() or self._chat_thread is not None:
+        # A fetch thread blocks re-entry just like the chat thread does.
+        if (not self.chat_input.isEnabled() or self._chat_thread is not None
+                or self._fetch_thread is not None):
             return
         question = self.chat_input.text().strip()
         if not question:
@@ -362,6 +367,29 @@ class OverlayWindow(QWidget):
         self.chat_input.clear()
         self._chat_cancelled = False
 
+        # Capture history BEFORE any turn is appended, so the fetch path can
+        # reuse the exact same ordering the hit path relies on.
+        history = [(m["role"], m["text"]) for m in self._chat_view if m["text"]]
+
+        # Miss path: zero local hits for the active game AND the game has a wiki
+        # -> fetch the wiki live first, then re-retrieve and answer.
+        wiki = self._active_wiki()
+        if (self._articles_repo is not None and wiki is not None
+                and not self._articles_repo.search_ranked(
+                    question, limit=1, game_id=self._active_game_id())):
+            self._start_fetch(question, history, wiki)
+            return
+
+        # Hit path (and not-fetchable): answer from the local corpus now.
+        sources, passages = self._retrieve(question)
+        self._begin_exchange(question, sources)
+        self._pending_messages = build_messages(question, passages, history)
+        self._attempt = 0
+        self._start_chat_worker()
+
+    def _retrieve(self, question):
+        """Game-scoped ranked retrieval -> (sources, passages) for the prompt.
+        Shared by the hit path and the post-fetch path."""
         sources, passages = [], []
         if self._articles_repo is not None:
             for hit in self._articles_repo.search_ranked(
@@ -370,13 +398,67 @@ class OverlayWindow(QWidget):
                 if article is None:
                     continue
                 sources.append((hit.pageid, hit.title))
-                passages.append((hit.title, relevant_passage(article.body, question)))
+                passages.append(
+                    (hit.title, relevant_passage(article.body, question)))
+        return sources, passages
 
-        history = [(m["role"], m["text"]) for m in self._chat_view if m["text"]]
-        self._begin_exchange(question, sources)
+    def _active_wiki(self):
+        """(api_url, wiki_base) for the active game if it has a wiki, else None."""
+        gid = self._active_game_id()
+        game = next((g for g in self._games if g.id == gid), None)
+        if game is None or not game.wiki_url:
+            return None
+        api = api_url_for(game.wiki_url)
+        if not api:
+            return None
+        return api, game.wiki_url
+
+    def _start_fetch(self, question, history, wiki):
+        """Miss path: show a placeholder, search+ingest the wiki off-thread, then
+        answer from what was fetched (in _on_fetch_done). On either finished or
+        error we proceed to answer — an empty fetch just yields no passages."""
+        api_url, wiki_base = wiki
+        self._begin_exchange(question, [])
+        self.chat_status.setText("Searching the wiki…")
+        self.chat_input.setEnabled(False)
+        self.chat_send_btn.setEnabled(False)
+        self._fetch_thread = QThread(self)
+        self._fetch_worker = OnDemandFetchWorker(
+            str(self._db_path), self._active_game_id(), api_url, wiki_base,
+            question)
+        self._fetch_worker.moveToThread(self._fetch_thread)
+        self._fetch_thread.started.connect(self._fetch_worker.run)
+        self._fetch_worker.finished.connect(
+            lambda _n: self._on_fetch_done(question, history))
+        self._fetch_worker.error.connect(
+            lambda _m: self._on_fetch_done(question, history))
+        self._fetch_thread.start()
+
+    def _on_fetch_done(self, question, history):
+        self._teardown_fetch_thread()
+        if self._chat_cancelled:
+            # Overlay was hidden mid-fetch: restore the input disabled in
+            # _start_fetch so the next show isn't stuck, and don't start a chat.
+            self.chat_input.setEnabled(True)
+            self.chat_send_btn.setEnabled(True)
+            self.chat_status.setText("")
+            return
+        sources, passages = self._retrieve(question)
+        # Reuse the existing placeholder assistant turn for streaming; just
+        # attach the sources the fetch produced.
+        if self._chat_view and self._chat_view[-1]["role"] == "assistant":
+            self._chat_view[-1]["sources"] = sources
+        self._render_chat()
         self._pending_messages = build_messages(question, passages, history)
         self._attempt = 0
         self._start_chat_worker()
+
+    def _teardown_fetch_thread(self):
+        if self._fetch_thread is not None:
+            self._fetch_thread.quit()
+            self._fetch_thread.wait(5000)
+        self._fetch_thread = None
+        self._fetch_worker = None
 
     def _start_chat_worker(self):
         """Run self._pending_messages on the current backend attempt. Factored
@@ -941,6 +1023,9 @@ class OverlayWindow(QWidget):
         if self._chat_worker is not None:
             self._chat_cancelled = True
             self._chat_worker.cancel()
+        if self._fetch_worker is not None:
+            self._chat_cancelled = True
+            self._fetch_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
@@ -952,7 +1037,10 @@ class OverlayWindow(QWidget):
             self._chat_worker.cancel()
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
+        if self._fetch_worker is not None:
+            self._fetch_worker.cancel()
         self._teardown_chat_thread()
+        self._teardown_fetch_thread()
         self._teardown_ingest()
 
     def _demote_foreground_game(self):
