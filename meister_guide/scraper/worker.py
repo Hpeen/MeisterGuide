@@ -87,6 +87,10 @@ class OnDemandFetchWorker(QObject):
         self._page_url_base = page_url_base
         self._query = query
         self._client = client
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
 
     def run(self):
         conn = None
@@ -96,7 +100,8 @@ class OnDemandFetchWorker(QObject):
             init_db(conn)
             client = self._client or WikiClient(api_url=self._api_url)
             n = run_on_demand_fetch(client, ArticlesRepo(conn), self._game_id,
-                                    self._query, base=self._page_url_base)
+                                    self._query, base=self._page_url_base,
+                                    should_cancel=lambda: self._cancel)
         except Exception as err:
             self.error.emit(str(err))
             return

@@ -61,3 +61,25 @@ def test_worker_emits_error_on_failure(tmp_path):
 
     assert counts == []
     assert errors and "offline" in errors[0]
+
+
+def test_worker_cancel_skips_ingest(tmp_path):
+    QApplication.instance() or QApplication([])
+    db = tmp_path / "c.db"
+    # seed the games row (FK) exactly like test_worker_ingests_and_emits_count does
+    conn = connect(db); init_db(conn)
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (7, 'T', '[]')")
+    conn.commit(); conn.close()
+    client = FakeClient(["Creeper"], [WikiArticle(1, "Creeper", "boom", 5)])
+    worker = OnDemandFetchWorker(str(db), game_id=7, api_url="x",
+                                 page_url_base="x", query="creeper",
+                                 client=client)
+    worker.cancel()
+    counts, errors = [], []
+    worker.finished.connect(lambda n: counts.append(n))
+    worker.error.connect(lambda m: errors.append(m))
+    worker.run()
+    assert errors == []
+    assert counts == [0]                  # finished cleanly with nothing ingested
+    conn = connect(db); init_db(conn)
+    assert ArticlesRepo(conn).count(game_id=7) == 0

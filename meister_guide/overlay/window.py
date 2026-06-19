@@ -1024,6 +1024,7 @@ class OverlayWindow(QWidget):
             self._chat_worker.cancel()
         if self._fetch_worker is not None:
             self._chat_cancelled = True
+            self._fetch_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
@@ -1035,6 +1036,8 @@ class OverlayWindow(QWidget):
             self._chat_worker.cancel()
         if self._ingest_worker is not None:
             self._ingest_worker.cancel()
+        if self._fetch_worker is not None:
+            self._fetch_worker.cancel()
         self._teardown_chat_thread()
         self._teardown_fetch_thread()
         self._teardown_ingest()

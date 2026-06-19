@@ -73,3 +73,20 @@ def test_page_url_handles_spaces_and_trailing_slash(tmp_path):
                         [WikiArticle(9, "Iron Golem", "guards", 1)])
     run_on_demand_fetch(client, repo, 7, "golem", base="https://minecraft.wiki/")
     assert repo.get_article(9).url == "https://minecraft.wiki/wiki/Iron_Golem"
+
+
+def test_should_cancel_stops_before_fetch(tmp_path):
+    repo = _repo(tmp_path)
+    client = FakeClient(["Creeper"], [WikiArticle(1, "Creeper", "boom", 5)])
+    n = run_on_demand_fetch(client, repo, 7, "creeper",
+                            should_cancel=lambda: True)
+    assert n == 0
+    assert client.searched is not None   # search ran
+    assert client.fetched is None        # cancelled before fetching
+    assert repo.count(game_id=7) == 0
+
+
+def test_no_cancel_callback_still_ingests(tmp_path):
+    repo = _repo(tmp_path)
+    client = FakeClient(["Creeper"], [WikiArticle(1, "Creeper", "boom", 5)])
+    assert run_on_demand_fetch(client, repo, 7, "creeper") == 1
