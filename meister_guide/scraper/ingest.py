@@ -2,6 +2,7 @@
 progress/cancel hooks. No Qt here so it stays unit-testable."""
 from meister_guide.db.articles import ScrapeState  # re-export for callers
 from meister_guide.scraper.wiki_client import InvalidContinueError
+from meister_guide.ai.ranking import is_noise
 
 
 def _url_for(title: str) -> str:
@@ -43,6 +44,8 @@ def _ingest_from(token, done, client, articles_repo, state_repo, conn, total,
         if should_cancel and should_cancel():
             return
         for art in articles:
+            if is_noise(art.title):
+                continue  # skip versioned/changelog/disambig pages — never useful
             if articles_repo.add_article(art.pageid, art.title, art.text,
                                          art.revid, _url_for(art.title),
                                          commit=False):

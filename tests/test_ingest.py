@@ -37,6 +37,20 @@ def test_run_ingest_populates_db_and_reports_progress(tmp_path):
     assert state.load().continue_token is None   # finished -> token cleared
 
 
+def test_run_ingest_skips_noise_pages(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    batches = [
+        ([WikiArticle(1, "Creeper", "a creeper", 1),
+          WikiArticle(2, "Java Edition 1.20", "changelog", 1),
+          WikiArticle(3, "Spider", "a spider", 1)], None),
+    ]
+    run_ingest(FakeClient(batches), arts, state, conn)
+    assert arts.count() == 2                  # the versioned changelog page is skipped
+    assert arts.get_article(2) is None        # "Java Edition 1.20" not stored
+    assert arts.get_article(1) is not None    # "Creeper" kept
+    assert arts.get_article(3) is not None    # "Spider" kept
+
+
 def test_run_ingest_resumes_from_saved_token(tmp_path):
     conn, arts, state = _setup(tmp_path)
     from meister_guide.scraper.ingest import ScrapeState  # re-exported

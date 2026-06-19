@@ -9,6 +9,7 @@ from meister_guide.db.redirects import RedirectsRepo, RedirectStateRepo
 from meister_guide.scraper.wiki_client import WikiClient
 from meister_guide.scraper.ingest import run_ingest
 from meister_guide.scraper.redirect_ingest import run_redirect_ingest
+from meister_guide.ai.ranking import is_noise
 
 
 class IngestWorker(QObject):
@@ -32,6 +33,9 @@ class IngestWorker(QObject):
             init_db(conn)
             client = self._client or WikiClient()
             articles_repo = ArticlesRepo(conn)
+            # One-time cleanup: drop any noise pages (versioned/changelog/disambig)
+            # stored before noise filtering existed. Cheap once the corpus is clean.
+            articles_repo.prune_noise(is_noise)
             run_ingest(
                 client,
                 articles_repo,
