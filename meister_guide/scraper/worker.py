@@ -90,6 +90,7 @@ class OnDemandFetchWorker(QObject):
 
     def run(self):
         conn = None
+        n = 0
         try:
             conn = connect(self._db_path)
             init_db(conn)
