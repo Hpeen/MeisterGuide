@@ -34,6 +34,17 @@ class ChatRepo:
         )
         self._conn.commit()
 
+    def delete_session(self, session_id) -> None:
+        """Delete a chat session and its messages in one transaction. A missing
+        id is a no-op (the DELETEs simply match nothing)."""
+        self._conn.execute(
+            "DELETE FROM chat_messages WHERE session_id = ?", (session_id,)
+        )
+        self._conn.execute(
+            "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
+        )
+        self._conn.commit()
+
     def add_message(self, session_id, role, content) -> int:
         cur = self._conn.execute(
             "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
