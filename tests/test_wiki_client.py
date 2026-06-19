@@ -200,3 +200,58 @@ def test_badcontinue_raises_invalid_continue_error():
     import pytest
     with pytest.raises(InvalidContinueError):
         list(client.iter_batches())
+
+
+def test_search_titles_returns_titles_in_namespace_0():
+    def fake_get(params):
+        assert params["action"] == "query"
+        assert params["list"] == "search"
+        assert params["srsearch"] == "how to tame a wolf"
+        assert params["srnamespace"] == 0
+        assert params["srlimit"] == 5
+        return {"query": {"search": [
+            {"title": "Wolf"}, {"title": "Bone"},
+        ]}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    assert client.search_titles("how to tame a wolf") == ["Wolf", "Bone"]
+
+
+def test_search_titles_respects_limit():
+    seen = {}
+    def fake_get(params):
+        seen["srlimit"] = params["srlimit"]
+        return {"query": {"search": []}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client.search_titles("x", limit=3)
+    assert seen["srlimit"] == 3
+
+
+def test_search_titles_empty_when_no_results():
+    client = WikiClient(http_get=lambda p: {"query": {"search": []}},
+                        delay=0, sleep=lambda s: None)
+    assert client.search_titles("zzzzz") == []
+
+
+def test_fetch_by_titles_builds_titles_param_and_parses():
+    def fake_get(params):
+        assert params["titles"] == "Creeper|Cow"
+        assert params["prop"] == "extracts"
+        assert params["explaintext"] == 1
+        return {"query": {"pages": {
+            "1": {"pageid": 1, "title": "Creeper", "extract": "boom", "lastrevid": 5},
+            "2": {"pageid": 2, "title": "Cow", "extract": "moo", "lastrevid": 6},
+        }}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    arts = client.fetch_by_titles(["Creeper", "Cow"])
+    assert sorted(a.title for a in arts) == ["Cow", "Creeper"]
+    assert all(isinstance(a, WikiArticle) for a in arts)
+
+
+def test_fetch_by_titles_empty_input_makes_no_request():
+    calls = []
+    def fake_get(params):
+        calls.append(params)
+        return {}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    assert client.fetch_by_titles([]) == []
+    assert calls == []

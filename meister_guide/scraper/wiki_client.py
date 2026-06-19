@@ -104,6 +104,31 @@ class WikiClient:
         })
         return data.get("query", {}).get("statistics", {}).get("articles")
 
+    def search_titles(self, query, limit=5):
+        """MediaWiki full-text search (list=search) in the article namespace.
+        Returns a list of page titles for the on-demand fetcher to pull."""
+        data = self._fetch({
+            "action": "query", "format": "json",
+            "list": "search", "srsearch": query,
+            "srnamespace": 0, "srlimit": limit, "maxlag": 5,
+        })
+        results = data.get("query", {}).get("search", [])
+        return [r["title"] for r in results if "title" in r]
+
+    def fetch_by_titles(self, titles):
+        """Fetch plain-text extracts for specific titles (prop=extracts). Reuses
+        _articles_from. TextExtracts may cap extracts per request; with <=3 titles
+        we accept whatever comes back."""
+        if not titles:
+            return []
+        data = self._fetch({
+            "action": "query", "format": "json",
+            "titles": "|".join(titles),
+            "prop": "extracts", "explaintext": 1, "exlimit": "max",
+            "maxlag": 5,
+        })
+        return self._articles_from(data)
+
     def _redirect_params(self, continue_token):
         # Enumerate redirect pages in the article namespace. aplimit is held at
         # 50 to match the per-request title cap of the redirect resolver below,
