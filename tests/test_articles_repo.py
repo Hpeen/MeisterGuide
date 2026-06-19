@@ -112,6 +112,28 @@ def test_search_ranked_recovers_singular_article_for_plural_multiterm(tmp_path):
     assert "Creeper" in titles
 
 
+def test_search_ranked_passes_computed_coverage_to_rerank(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    repo.add_article(2, "Spider",
+                     "A spider is a mob. " + ("filler " * 200) +
+                     "In Hard difficulty spiders spawn with a random status effect.",
+                     None, "u2")
+    import meister_guide.db.articles as articles_mod
+    captured = {}
+    real_rerank = articles_mod.rerank
+
+    def spy(candidates, terms, limit, coverage=None):
+        captured["coverage"] = coverage
+        return real_rerank(candidates, terms, limit, coverage=coverage)
+
+    monkeypatch.setattr(articles_mod, "rerank", spy)
+    repo.search_ranked("when do spiders spawn with potion effects", limit=2)
+    # search_ranked must compute a coverage dict and pass it (not None).
+    assert captured["coverage"] is not None
+    # Spider's clustered answer covers spider+spawn+effect (3 distinct), not potion.
+    assert captured["coverage"].get(2, 0) >= 3
+
+
 def test_search_ranked_prefers_topic_specific_article(tmp_path):
     repo = _repo(tmp_path)
     # Generic page: dense in the effect/potion words (strong bm25) but no spider.
