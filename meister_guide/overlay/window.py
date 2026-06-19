@@ -441,6 +441,7 @@ class OverlayWindow(QWidget):
             # _start_fetch so the next show isn't stuck, and don't start a chat.
             self.chat_input.setEnabled(True)
             self.chat_send_btn.setEnabled(True)
+            self.chat_status.setText("")
             return
         sources, passages = self._retrieve(question)
         # Reuse the existing placeholder assistant turn for streaming; just

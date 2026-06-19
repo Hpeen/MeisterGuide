@@ -98,7 +98,8 @@ from meister_guide.db.games import Game
 
 
 def _window_with_wiki_game(tmp_path, with_article=False):
-    conn = connect(tmp_path / "wg.db")
+    db = tmp_path / "wg.db"
+    conn = connect(db)
     init_db(conn)
     # Seed the games DB row so FK constraint is satisfied when game_id=7 is used
     conn.execute("INSERT INTO games (id, name, process_names, wiki_url) VALUES (7, 'Subnautica', '[]', 'https://subnautica.fandom.com')")
@@ -110,7 +111,7 @@ def _window_with_wiki_game(tmp_path, with_article=False):
                          game_id=7)
     chat = ChatRepo(conn)
     QApplication.instance() or QApplication([])
-    w = OverlayWindow(QSettings("MeisterGuide", "T2"), [game], arts, ":memory:",
+    w = OverlayWindow(QSettings("MeisterGuide", "T2"), [game], arts, str(db),
                       chat, OkClient())
     w.active_game = game
     return w, chat

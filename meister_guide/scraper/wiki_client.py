@@ -1,5 +1,4 @@
-"""MediaWiki API client for minecraft.wiki — streams batched plain-text article
-extracts. Pure: HTTP and sleep are injectable so tests run without a network."""
+"""MediaWiki API client (per-wiki via injected api_url): bulk batched extract streaming for ingest, plus search + fetch-by-title for on-demand fetch. Pure: HTTP and sleep are injectable so tests run without a network."""
 import json
 import time
 from dataclasses import dataclass
@@ -116,9 +115,7 @@ class WikiClient:
         return [r["title"] for r in results if "title" in r]
 
     def fetch_by_titles(self, titles):
-        """Fetch plain-text extracts for specific titles (prop=extracts). Reuses
-        _articles_from. TextExtracts may cap extracts per request; with <=3 titles
-        we accept whatever comes back."""
+        """Fetch plain-text extracts for specific titles (prop=extracts) in one request. Reuses _articles_from to build WikiArticles."""
         if not titles:
             return []
         data = self._fetch({
