@@ -368,29 +368,25 @@ git commit -m "feat: cluster-based RAG passage, widen window to 2000"
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/test_ranking.py` (import `SearchHit` as the existing tests do):
+Add to `tests/test_ranking.py`. NOTE: the file already defines a `Hit` namedtuple and a `_hit(title)` helper (pageid hardcoded to 1) used by existing tests — do NOT redefine `_hit`. Add a distinct `_covhit(pageid, title)` that reuses the existing `Hit` namedtuple (rerank only needs `.pageid` and `.title`):
 
 ```python
-from meister_guide.db.articles import SearchHit
-from meister_guide.ai.ranking import rerank
-
-
-def _hit(pageid, title):
-    return SearchHit(pageid=pageid, title=title, excerpt_html="", url=None)
+def _covhit(pageid, title):
+    return Hit(pageid, title, "", None)
 
 
 def test_coverage_boost_lifts_specific_over_generic():
     terms = ["spider", "spawn", "potion", "effect"]
     # Generic "Effect" has the better bm25 rank (more negative) but low coverage;
     # the specific article covers more distinct query terms.
-    candidates = [(-9.0, _hit(1, "Effect")), (-3.0, _hit(2, "Cave Spider"))]
+    candidates = [(-9.0, _covhit(1, "Effect")), (-3.0, _covhit(2, "Cave Spider"))]
     coverage = {1: 2, 2: 3}
     ordered = rerank(candidates, terms, limit=2, coverage=coverage)
     assert ordered[0].pageid == 2   # Cave Spider wins on coverage
 
 def test_rerank_without_coverage_is_unchanged():
     terms = ["spider", "spawn", "potion", "effect"]
-    candidates = [(-9.0, _hit(1, "Effect")), (-3.0, _hit(2, "Cave Spider"))]
+    candidates = [(-9.0, _covhit(1, "Effect")), (-3.0, _covhit(2, "Cave Spider"))]
     ordered = rerank(candidates, terms, limit=2)   # no coverage arg
     assert ordered[0].pageid == 1   # bm25 (more negative) wins the title tie
 ```
@@ -452,10 +448,11 @@ git commit -m "feat: coverage boost in rerank (specific beats generic)"
 
 - [ ] **Step 1: Write the failing integration test**
 
-Add to `tests/test_articles_repo.py` (follow the existing in-memory-DB fixture pattern in that file for `conn`/`ArticlesRepo`):
+Add to `tests/test_articles_repo.py`. The file already provides a `_repo(tmp_path)` helper (creates `connect(tmp_path/"a.db")` + `init_db` + `ArticlesRepo`) — use it, with the standard `tmp_path` pytest fixture:
 
 ```python
-def test_search_ranked_prefers_topic_specific_article(repo):
+def test_search_ranked_prefers_topic_specific_article(tmp_path):
+    repo = _repo(tmp_path)
     # Generic page: dense in the effect/potion words (strong bm25) but no spider.
     repo.add_article(1, "Effect",
                      "Effect potion effect effect potion brewing effect potion. " * 20,
@@ -468,9 +465,6 @@ def test_search_ranked_prefers_topic_specific_article(repo):
     hits = repo.search_ranked("when do spiders spawn with potion effects", limit=2)
     assert hits[0].title == "Spider"
 ```
-
-> If `tests/test_articles_repo.py` has no `repo` fixture, create one mirroring the
-> file's existing setup: `conn = connect(":memory:"); init_db(conn); repo = ArticlesRepo(conn)`.
 
 - [ ] **Step 2: Run to verify failure**
 
