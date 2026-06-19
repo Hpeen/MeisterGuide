@@ -30,6 +30,7 @@ from meister_guide.overlay.win32_topmost import (
 )
 from meister_guide.scraper.worker import IngestWorker
 from meister_guide.guides_status import guides_status_text
+from meister_guide.overlay.chat_manager import ChatManagerDialog
 
 class _PanelWidget(QWidget):
     def __init__(self):
@@ -203,6 +204,9 @@ class OverlayWindow(QWidget):
         self.chat_history = QComboBox()
         self.chat_history.activated.connect(self._on_load_session)
         top.addWidget(self.chat_history, 1)
+        self.chat_manage_btn = QPushButton("Manage")
+        self.chat_manage_btn.clicked.connect(self._on_manage_chats)
+        top.addWidget(self.chat_manage_btn)
         col.addLayout(top)
 
         self.chat_view = QTextBrowser()
@@ -483,6 +487,16 @@ class OverlayWindow(QWidget):
         self._chat_session = None
         self._chat_view = []
         self._render_chat()
+
+    def _on_manage_chats(self):
+        if self._chat_repo is None:
+            return
+        dlg = ChatManagerDialog(self._chat_repo, self)
+        dlg.exec()
+        # If the chat currently open in the view was deleted, drop to a blank one.
+        if self._chat_session in dlg.deleted_ids:
+            self._on_new_chat()
+        self._refresh_history()
 
     def _on_load_session(self, index):
         session_id = self.chat_history.itemData(index)
