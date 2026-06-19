@@ -79,3 +79,10 @@ def test_best_window_single_term_centers_on_match():
 def test_best_window_no_match_is_leading_window():
     from meister_guide.scraper.excerpt import best_window
     assert best_window("alpha beta", ["zzz"], 5) == (0, 5, 0)
+
+
+def test_window_bounds_multi_term_prefers_cluster():
+    from meister_guide.scraper.excerpt import window_bounds
+    body = "spider intro. " + ("z" * 400) + " spider spawn effect cluster."
+    start, end = window_bounds(body, "spider spawn effect", 120)
+    assert "cluster" in body[start:end]   # not the lone 'spider' in the intro

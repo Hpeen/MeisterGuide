@@ -20,19 +20,11 @@ def deinflect(word: str) -> str:
 
 
 def window_bounds(body: str, query: str, width: int) -> tuple:
-    """Return (start, end) of a `width`-char window centred on the earliest
-    query-term match, or the leading window when nothing matches."""
-    terms = [t for t in _WORD.findall(query.lower()) if t]
-    lowered = body.lower()
-    first = -1
-    for term in terms:
-        idx = lowered.find(term)
-        if idx != -1 and (first == -1 or idx < first):
-            first = idx
-    if first == -1:
-        return 0, min(len(body), width)
-    start = max(0, first - width // 3)
-    end = min(len(body), start + width)
+    """Return (start, end) of a `width`-char window over the densest cluster of
+    query terms (or the leading window when nothing matches). Thin wrapper over
+    best_window so excerpt highlighting and RAG passage selection share placement."""
+    terms = _WORD.findall(query.lower())
+    start, end, _ = best_window(body, terms, width)
     return start, end
 
 
