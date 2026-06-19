@@ -22,8 +22,19 @@ def connect(db_path) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn, table, column, decl):
+    cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create the core + Phase 3 + Phase 6 tables if they don't exist. Idempotent."""
+    """Create the core + Phase 3 + Phase 6 tables if they don't exist, then add
+    any columns missing from an older DB. Idempotent."""
     for statement in CORE_TABLES + PHASE3_TABLES + PHASE6_TABLES:
         conn.execute(statement)
+    # Migrations for DBs created before a column existed (CREATE IF NOT EXISTS
+    # won't add columns to an existing table).
+    _ensure_column(conn, "articles", "game_id", "INTEGER REFERENCES games(id)")
+    _ensure_column(conn, "redirects", "game_id", "INTEGER REFERENCES games(id)")
     conn.commit()

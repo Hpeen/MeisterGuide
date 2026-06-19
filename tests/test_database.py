@@ -38,3 +38,25 @@ def test_phase3_tables_exist(tmp_path):
         "SELECT rowid FROM articles_fts WHERE articles_fts MATCH 'explodes'"
     ).fetchall()
     assert rows == [(1,)]
+
+
+def test_init_db_adds_game_id_to_existing_old_shape_db(tmp_path):
+    import sqlite3
+    from meister_guide.db.database import connect, init_db
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    # Simulate a pre-migration DB: articles/redirects WITHOUT game_id.
+    conn.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, pageid INTEGER "
+                 "UNIQUE NOT NULL, title TEXT NOT NULL, body_zlib BLOB NOT NULL, "
+                 "revid INTEGER, url TEXT)")
+    conn.execute("CREATE TABLE redirects (id INTEGER PRIMARY KEY, title TEXT "
+                 "UNIQUE NOT NULL, target_pageid INTEGER NOT NULL)")
+    conn.commit(); conn.close()
+
+    conn = connect(path)
+    init_db(conn)                      # must ALTER in the missing column
+    cols_a = [r[1] for r in conn.execute("PRAGMA table_info(articles)")]
+    cols_r = [r[1] for r in conn.execute("PRAGMA table_info(redirects)")]
+    assert "game_id" in cols_a
+    assert "game_id" in cols_r
+    init_db(conn)                      # idempotent: re-run must not raise
