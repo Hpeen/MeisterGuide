@@ -17,9 +17,10 @@ class IngestWorker(QObject):
     finished = Signal()
     error = Signal(str)
 
-    def __init__(self, db_path, client=None):
+    def __init__(self, db_path, game_id=None, client=None):
         super().__init__()
         self._db_path = db_path
+        self._game_id = game_id
         self._client = client
         self._cancel = False
 
@@ -43,6 +44,7 @@ class IngestWorker(QObject):
                 conn,
                 progress_cb=lambda d, t: self.progress.emit(d, t or 0),
                 should_cancel=lambda: self._cancel,
+                game_id=self._game_id,
             )
             if self._cancel:
                 return
@@ -57,6 +59,7 @@ class IngestWorker(QObject):
                 conn,
                 progress_cb=lambda d: self.progress.emit(d, 0),
                 should_cancel=lambda: self._cancel,
+                game_id=self._game_id,
             )
         except Exception as err:
             self.error.emit(str(err))

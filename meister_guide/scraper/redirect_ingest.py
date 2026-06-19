@@ -7,7 +7,7 @@ from meister_guide.scraper.wiki_client import InvalidContinueError
 
 
 def run_redirect_ingest(client, redirects_repo, articles_repo, state_repo, conn,
-                        progress_cb=None, should_cancel=None):
+                        progress_cb=None, should_cancel=None, game_id=None):
     """Ingest redirect aliases into `redirects_repo`. Targets that aren't stored
     articles (other namespaces, or unresolved double redirects) are skipped.
     Resumes from the saved token; restarts once if the token is rejected as
@@ -15,16 +15,16 @@ def run_redirect_ingest(client, redirects_repo, articles_repo, state_repo, conn,
     st = state_repo.load()
     try:
         _walk(st.continue_token, st.done, client, redirects_repo, articles_repo,
-              state_repo, conn, progress_cb, should_cancel)
+              state_repo, conn, progress_cb, should_cancel, game_id)
     except InvalidContinueError:
         restart_done = redirects_repo.count()
         state_repo.save(RedirectState(None, restart_done))
         _walk(None, restart_done, client, redirects_repo, articles_repo,
-              state_repo, conn, progress_cb, should_cancel)
+              state_repo, conn, progress_cb, should_cancel, game_id)
 
 
 def _walk(token, done, client, redirects_repo, articles_repo, state_repo, conn,
-          progress_cb, should_cancel):
+          progress_cb, should_cancel, game_id=None):
     for mappings, next_token in client.iter_redirect_mappings(start_token=token):
         if should_cancel and should_cancel():
             return
@@ -33,7 +33,7 @@ def _walk(token, done, client, redirects_repo, articles_repo, state_repo, conn,
             if target_pageid is None:
                 continue
             if redirects_repo.add_redirect(from_title, target_pageid,
-                                           commit=False):
+                                           game_id=game_id, commit=False):
                 done += 1
         state_repo.save(RedirectState(next_token, done), commit=False)
         conn.commit()

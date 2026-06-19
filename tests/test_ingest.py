@@ -93,3 +93,12 @@ def test_run_ingest_recovers_from_stale_continue_token(tmp_path):
     assert client.tokens == ["STALE", None]      # tried stale, then restarted clean
     assert arts.count() == 2
     assert state.load().continue_token is None
+
+
+def test_run_ingest_tags_articles_with_game_id(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (42, 'G42', '[]')")
+    conn.commit()
+    batches = [([WikiArticle(1, "Creeper", "a creeper", 1)], None)]
+    run_ingest(FakeClient(batches), arts, state, conn, game_id=42)
+    assert conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()[0] == 42
