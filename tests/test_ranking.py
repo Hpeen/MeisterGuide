@@ -84,3 +84,24 @@ def test_rerank_respects_limit():
 
 def test_rerank_empty_returns_empty():
     assert rerank([], ["creeper"], limit=3) == []
+
+
+# coverage boost tests (Task 5)
+def _covhit(pageid, title):
+    return Hit(pageid, title, "", None)
+
+
+def test_coverage_boost_lifts_specific_over_generic():
+    terms = ["spider", "spawn", "potion", "effect"]
+    # Generic "Effect" has the better bm25 rank (more negative) but low coverage;
+    # the specific article covers more distinct query terms.
+    candidates = [(-9.0, _covhit(1, "Effect")), (-3.0, _covhit(2, "Cave Spider"))]
+    coverage = {1: 2, 2: 3}
+    ordered = rerank(candidates, terms, limit=2, coverage=coverage)
+    assert ordered[0].pageid == 2   # Cave Spider wins on coverage
+
+def test_rerank_without_coverage_is_unchanged():
+    terms = ["spider", "spawn", "potion", "effect"]
+    candidates = [(-9.0, _covhit(1, "Effect")), (-3.0, _covhit(2, "Cave Spider"))]
+    ordered = rerank(candidates, terms, limit=2)   # no coverage arg
+    assert ordered[0].pageid == 1   # bm25 (more negative) wins the title tie
