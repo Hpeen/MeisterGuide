@@ -10,13 +10,13 @@ class RedirectsRepo:
     def __init__(self, conn):
         self._conn = conn
 
-    def add_redirect(self, title, target_pageid, commit=True) -> bool:
+    def add_redirect(self, title, target_pageid, game_id=None, commit=True) -> bool:
         """Insert one alias title -> target pageid + its FTS row. Skips (returns
         False) if the title is already stored, so a resumed/re-run walk is
         idempotent. Pass commit=False to batch many inserts under one txn."""
         cur = self._conn.execute(
-            "INSERT OR IGNORE INTO redirects (title, target_pageid) VALUES (?, ?)",
-            (title, target_pageid),
+            "INSERT OR IGNORE INTO redirects (title, target_pageid, game_id) VALUES (?, ?, ?)",
+            (title, target_pageid, game_id),
         )
         if cur.rowcount == 0:
             return False

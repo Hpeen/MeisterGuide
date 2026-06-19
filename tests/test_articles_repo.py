@@ -168,3 +168,12 @@ def test_search_ranked_prefers_topic_specific_article(tmp_path):
                      None, "u2")
     hits = repo.search_ranked("when do spiders spawn with potion effects", limit=2)
     assert hits[0].title == "Spider"
+
+
+def test_add_article_stores_game_id(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (7, 'G7', '[]')")
+    repo._conn.commit()
+    repo.add_article(1, "Creeper", "a creeper", 1, "u1", game_id=7)
+    row = repo._conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()
+    assert row[0] == 7

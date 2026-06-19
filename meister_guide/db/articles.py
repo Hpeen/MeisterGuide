@@ -31,15 +31,16 @@ class ArticlesRepo:
     def __init__(self, conn):
         self._conn = conn
 
-    def add_article(self, pageid, title, text, revid, url, commit=True) -> bool:
+    def add_article(self, pageid, title, text, revid, url, game_id=None, commit=True) -> bool:
         """Insert one article + its FTS row. Skips (returns False) if the pageid
         is already stored, so a resumed/re-run ingest is idempotent.
         Pass commit=False to batch many inserts under one transaction."""
         body = zlib.compress(text.encode("utf-8"))
         cur = self._conn.execute(
-            "INSERT OR IGNORE INTO articles (pageid, title, body_zlib, revid, url) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (pageid, title, body, revid, url),
+            "INSERT OR IGNORE INTO articles "
+            "(pageid, title, body_zlib, revid, url, game_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (pageid, title, body, revid, url, game_id),
         )
         if cur.rowcount == 0:
             return False
