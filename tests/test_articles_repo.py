@@ -110,3 +110,18 @@ def test_search_ranked_recovers_singular_article_for_plural_multiterm(tmp_path):
                      1, "u2")
     titles = [h.title for h in repo.search_ranked("creepers explosion", limit=3)]
     assert "Creeper" in titles
+
+
+def test_search_ranked_prefers_topic_specific_article(tmp_path):
+    repo = _repo(tmp_path)
+    # Generic page: dense in the effect/potion words (strong bm25) but no spider.
+    repo.add_article(1, "Effect",
+                     "Effect potion effect effect potion brewing effect potion. " * 20,
+                     None, "u1")
+    # Specific page: contains the actual answer cluster below an intro.
+    repo.add_article(2, "Spider",
+                     "A spider is a mob. " + ("filler " * 200) +
+                     "In Hard difficulty spiders spawn with a random status effect.",
+                     None, "u2")
+    hits = repo.search_ranked("when do spiders spawn with potion effects", limit=2)
+    assert hits[0].title == "Spider"
