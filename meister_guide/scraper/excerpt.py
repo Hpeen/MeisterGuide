@@ -36,6 +36,71 @@ def window_bounds(body: str, query: str, width: int) -> tuple:
     return start, end
 
 
+def _occurrences(lowered: str, roots: list) -> list:
+    """All (pos, root_index) substring hits, sorted by pos. Capped per root so a
+    ubiquitous term can't blow up cost on a long body."""
+    hits = []
+    for ri, root in enumerate(roots):
+        if not root:
+            continue
+        start, found = 0, 0
+        while found < 200:
+            idx = lowered.find(root, start)
+            if idx == -1:
+                break
+            hits.append((idx, ri))
+            start = idx + len(root)
+            found += 1
+    hits.sort()
+    return hits
+
+
+def best_window(body: str, terms, width: int) -> tuple:
+    """Return (start, end, distinct_count): the `width`-char window of `body`
+    covering the most DISTINCT de-inflected `terms`. Falls back to the leading
+    window when nothing matches. Terms are de-inflected and substring-matched, so
+    a query 'effects' lands on body text 'effect'/'effects' alike. Used both to
+    place the RAG passage and to score topic coverage in ranking."""
+    roots, seen = [], set()
+    for t in terms:
+        r = deinflect(t.lower())
+        if r and r not in seen:
+            seen.add(r)
+            roots.append(r)
+    lowered = body.lower()
+    hits = _occurrences(lowered, roots)
+    if not hits:
+        return 0, min(len(body), width), 0
+
+    # Two-pointer over sorted hit positions: the width-span containing the most
+    # distinct roots (tie-break: more total hits, then earliest).
+    counts = {}
+    distinct = 0
+    left = 0
+    best_distinct, best_total, best_lo, best_hi = 0, 0, hits[0][0], hits[0][0]
+    for right in range(len(hits)):
+        _, root_r = hits[right]
+        counts[root_r] = counts.get(root_r, 0) + 1
+        if counts[root_r] == 1:
+            distinct += 1
+        while hits[right][0] - hits[left][0] > width:
+            _, root_l = hits[left]
+            counts[root_l] -= 1
+            if counts[root_l] == 0:
+                distinct -= 1
+            left += 1
+        total = right - left + 1
+        lo, hi = hits[left][0], hits[right][0]
+        if (distinct, total, -lo) > (best_distinct, best_total, -best_lo):
+            best_distinct, best_total, best_lo, best_hi = distinct, total, lo, hi
+
+    mid = (best_lo + best_hi) // 2
+    start = max(0, mid - width // 2)
+    end = min(len(body), start + width)
+    start = max(0, end - width)
+    return start, end, best_distinct
+
+
 def make_excerpt(body: str, query: str, width: int = 240) -> str:
     terms = [t for t in _WORD.findall(query.lower()) if t]
     start, end = window_bounds(body, query, width)
