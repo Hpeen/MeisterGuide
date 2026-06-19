@@ -177,3 +177,26 @@ def test_add_article_stores_game_id(tmp_path):
     repo.add_article(1, "Creeper", "a creeper", 1, "u1", game_id=7)
     row = repo._conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()
     assert row[0] == 7
+
+
+def test_search_ranked_scoped_to_game(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    repo.add_article(1, "Creeper", "A creeper explodes in Minecraft.", 1, "u1", game_id=1)
+    repo.add_article(2, "Creeper", "A creeper plant grows in this other game.", 1, "u2", game_id=2)
+    g1 = repo.search_ranked("creeper", limit=5, game_id=1)
+    assert [h.pageid for h in g1] == [1]          # only game 1's article
+    g2 = repo.search_ranked("creeper", limit=5, game_id=2)
+    assert [h.pageid for h in g2] == [2]
+
+
+def test_count_scoped_to_game(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    repo.add_article(1, "A", "x", 1, "u1", game_id=1)
+    repo.add_article(2, "B", "y", 1, "u2", game_id=2)
+    assert repo.count() == 2            # unscoped total
+    assert repo.count(game_id=1) == 1
+    assert repo.count(game_id=2) == 1
