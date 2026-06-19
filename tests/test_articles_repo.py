@@ -59,6 +59,27 @@ def test_search_is_safe_with_fts_special_chars(tmp_path):
     assert isinstance(repo.search('creeper" OR ('), list)
 
 
+def test_prune_noise_removes_junk_and_keeps_real(tmp_path):
+    from meister_guide.ai.ranking import is_noise
+    repo = _repo(tmp_path)
+    repo.add_article(1, "Creeper", "A creeper explodes.", 1, "u1")
+    repo.add_article(2, "Java Edition 1.20", "Changelog for 1.20.", 1, "u2")
+    repo.add_article(3, "Spider", "A spider climbs walls.", 1, "u3")
+    repo.add_article(4, "Creeper (disambiguation)", "Creeper may refer to...", 1, "u4")
+
+    pruned = repo.prune_noise(is_noise)
+
+    assert pruned == 2
+    assert repo.count() == 2
+    assert repo.get_article(1) is not None     # Creeper kept
+    assert repo.get_article(3) is not None     # Spider kept
+    assert repo.get_article(2) is None         # version page gone
+    assert repo.get_article(4) is None         # disambiguation gone
+    # FTS index pruned too: the junk pageid no longer matches, the real one still does
+    assert all(h.pageid != 2 for h in repo.search("Java Edition 1.20"))
+    assert any(h.pageid == 1 for h in repo.search("creeper"))
+
+
 def test_scrape_state_defaults_then_persists(tmp_path):
     from meister_guide.db.articles import ScrapeStateRepo, ScrapeState
     conn = connect(tmp_path / "s.db")

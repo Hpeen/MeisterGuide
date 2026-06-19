@@ -78,6 +78,30 @@ class ArticlesRepo:
         self._conn.execute("DELETE FROM articles")
         self._conn.commit()
 
+    def prune_noise(self, is_noise) -> int:
+        """Delete stored articles whose title matches `is_noise(title)` plus their
+        contentless-FTS rows; return the number pruned. One-time cleanup for a
+        corpus downloaded before noise filtering existed. Contentless FTS5 needs
+        the original column values supplied to delete an index row, so the body is
+        decompressed and passed to the 'delete' command."""
+        rows = self._conn.execute(
+            "SELECT id, title, body_zlib FROM articles"
+        ).fetchall()
+        pruned = 0
+        for id_, title, body_zlib in rows:
+            if not is_noise(title):
+                continue
+            body = zlib.decompress(body_zlib).decode("utf-8")
+            self._conn.execute(
+                "INSERT INTO articles_fts(articles_fts, rowid, title, body) "
+                "VALUES('delete', ?, ?, ?)",
+                (id_, title, body),
+            )
+            self._conn.execute("DELETE FROM articles WHERE id = ?", (id_,))
+            pruned += 1
+        self._conn.commit()
+        return pruned
+
     def search(self, query, limit=50):
         fts_query = self._to_fts_query(query)
         if not fts_query:

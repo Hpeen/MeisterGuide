@@ -29,6 +29,15 @@ def noise_penalty(title):
     return 0.0
 
 
+def is_noise(title) -> bool:
+    """True for pages the ranker already sinks (versioned edition/changelog
+    pages, development-version & history subpages, movie/event, disambiguation).
+    Single source of truth reused to skip these at ingest and prune them from an
+    existing corpus — they never make useful answer sources and bloat the
+    download (the wiki has thousands of per-version pages)."""
+    return noise_penalty(title) > 0.0
+
+
 def title_boost(title, terms):
     """Boost from overlap between cleaned query `terms` and the title's words.
     Exact set match scores highest, then 'all terms present', then partial.

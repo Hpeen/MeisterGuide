@@ -86,6 +86,22 @@ def test_rerank_empty_returns_empty():
     assert rerank([], ["creeper"], limit=3) == []
 
 
+# noise predicate test
+from meister_guide.ai.ranking import is_noise
+
+
+def test_is_noise_flags_junk_keeps_real_pages():
+    assert is_noise("Java Edition 1.20")
+    assert is_noise("Bedrock Edition beta 1.16.0.57")
+    assert is_noise("Bedrock Edition 1.2.0/Development versions")
+    assert is_noise("Creeper (disambiguation)")
+    assert is_noise("A Minecraft Movie")
+    # real gameplay articles and non-versioned platform pages are kept
+    assert not is_noise("Creeper")
+    assert not is_noise("Spider")
+    assert not is_noise("Java Edition")
+
+
 # coverage boost tests (Task 5)
 def _covhit(pageid, title):
     return Hit(pageid, title, "", None)
