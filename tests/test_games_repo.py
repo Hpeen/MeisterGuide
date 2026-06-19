@@ -57,3 +57,10 @@ def test_process_names_roundtrip_as_list(tmp_path):
     repo = _repo(tmp_path)
     g = repo.add("X", ["a.exe", "b.exe"], None)
     assert repo.get(g.id).process_names == ["a.exe", "b.exe"]
+
+
+def test_api_url_for_derives_mediawiki_endpoint():
+    from meister_guide.db.games import api_url_for
+    assert api_url_for("https://minecraft.wiki") == "https://minecraft.wiki/api.php"
+    assert api_url_for("https://subnautica.fandom.com/") == "https://subnautica.fandom.com/api.php"
+    assert api_url_for(None) is None
