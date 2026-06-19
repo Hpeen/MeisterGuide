@@ -30,6 +30,15 @@ _STALE_MINECRAFT_PROCESS_LISTS = [
     ["javaw.exe", "Minecraft.exe", "MinecraftLauncher.exe"],
 ]
 
+def api_url_for(wiki_url):
+    """Derive a MediaWiki action-API endpoint from a wiki base URL. Works for
+    minecraft.wiki and Fandom wikis. Returns None when no wiki_url is set.
+    Consumed by SP2's on-demand fetcher."""
+    if not wiki_url:
+        return None
+    return wiki_url.rstrip("/") + "/api.php"
+
+
 _SELECT = "SELECT id, name, process_names, wiki_url FROM games"
 
 

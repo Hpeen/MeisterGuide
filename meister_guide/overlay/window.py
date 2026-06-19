@@ -66,7 +66,8 @@ class OverlayWindow(QWidget):
     def __init__(self, settings: QSettings, games=None, articles_repo=None,
                  db_path=None, chat_repo=None, ollama_client=None,
                  settings_repo=None, hotkey=None, claude_factory=ClaudeClient,
-                 scrape_state_repo=None, redirect_state_repo=None):
+                 scrape_state_repo=None, redirect_state_repo=None,
+                 games_repo=None):
         super().__init__()
         self._settings = settings
         self._settings_repo = settings_repo
@@ -80,6 +81,7 @@ class OverlayWindow(QWidget):
         # overlay can sit above it; restored when the overlay hides.
         self._demoted_hwnd = None
         self._articles_repo = articles_repo
+        self._games_repo = games_repo
         self._db_path = db_path
         self._scrape_state_repo = scrape_state_repo
         self._redirect_state_repo = redirect_state_repo
@@ -362,7 +364,8 @@ class OverlayWindow(QWidget):
 
         sources, passages = [], []
         if self._articles_repo is not None:
-            for hit in self._articles_repo.search_ranked(question, limit=3):
+            for hit in self._articles_repo.search_ranked(
+                    question, limit=3, game_id=self._active_game_id()):
                 article = self._articles_repo.get_article(hit.pageid)
                 if article is None:
                     continue
@@ -548,6 +551,11 @@ class OverlayWindow(QWidget):
     def _on_update_guides(self):
         if self._db_path is None or self._ingest_thread is not None:
             return
+        if self.active_game is not None and self.active_game.name != "Minecraft":
+            # SP1: only Minecraft has a wired bulk corpus; other games fill on-demand later.
+            self.guides_status.setText("On-demand updates for this game are coming soon")
+            return
+        mc_id = next((g.id for g in self._games if g.name == "Minecraft"), None)
         self.guides_update_btn.setEnabled(False)
         self.guides_progress.setVisible(True)
         self.guides_progress.setRange(0, 0)  # indeterminate until first progress
@@ -555,7 +563,7 @@ class OverlayWindow(QWidget):
         self._last_progress_done = None
 
         self._ingest_thread = QThread(self)
-        self._ingest_worker = IngestWorker(str(self._db_path))
+        self._ingest_worker = IngestWorker(str(self._db_path), game_id=mc_id)
         self._ingest_worker.moveToThread(self._ingest_thread)
         self._ingest_thread.started.connect(self._ingest_worker.run)
         self._ingest_worker.progress.connect(self._on_ingest_progress)
@@ -614,59 +622,71 @@ class OverlayWindow(QWidget):
         col = QVBoxLayout(page)
         col.setContentsMargins(16, 16, 16, 16)
         col.setSpacing(10)
-        if self._settings_repo is None:
-            col.addWidget(QLabel("Settings unavailable."))
-            col.addStretch(1)
-            return page
 
-        # --- chat backend ---
-        col.addWidget(QLabel("<b>AI chat backend</b>"))
-        self.set_backend = QComboBox()
-        self.set_backend.addItem("Auto — online when possible, offline backup", BACKEND_AUTO)
-        self.set_backend.addItem("Always online (Claude)", BACKEND_CLAUDE)
-        self.set_backend.addItem("Always local (Ollama) — offline & private", BACKEND_OLLAMA)
-        idx = self.set_backend.findData(self._settings_repo.chat_backend())
-        if idx >= 0:
-            self.set_backend.setCurrentIndex(idx)
-        col.addWidget(self.set_backend)
+        if self._settings_repo is not None:
+            # --- chat backend ---
+            col.addWidget(QLabel("<b>AI chat backend</b>"))
+            self.set_backend = QComboBox()
+            self.set_backend.addItem("Auto — online when possible, offline backup", BACKEND_AUTO)
+            self.set_backend.addItem("Always online (Claude)", BACKEND_CLAUDE)
+            self.set_backend.addItem("Always local (Ollama) — offline & private", BACKEND_OLLAMA)
+            idx = self.set_backend.findData(self._settings_repo.chat_backend())
+            if idx >= 0:
+                self.set_backend.setCurrentIndex(idx)
+            col.addWidget(self.set_backend)
 
-        col.addWidget(QLabel("Claude API key"))
-        self.set_api_key = QLineEdit(self._settings_repo.claude_api_key())
-        self.set_api_key.setEchoMode(QLineEdit.Password)
-        self.set_api_key.setPlaceholderText("sk-ant-…  (stored locally; only used for the Claude backend)")
-        col.addWidget(self.set_api_key)
+            col.addWidget(QLabel("Claude API key"))
+            self.set_api_key = QLineEdit(self._settings_repo.claude_api_key())
+            self.set_api_key.setEchoMode(QLineEdit.Password)
+            self.set_api_key.setPlaceholderText("sk-ant-…  (stored locally; only used for the Claude backend)")
+            col.addWidget(self.set_api_key)
 
-        col.addWidget(QLabel("Claude model"))
-        self.set_model = QComboBox()
-        for name in AVAILABLE_MODELS:
-            self.set_model.addItem(name, name)
-        idx = self.set_model.findData(self._settings_repo.claude_model())
-        if idx >= 0:
-            self.set_model.setCurrentIndex(idx)
-        col.addWidget(self.set_model)
+            col.addWidget(QLabel("Claude model"))
+            self.set_model = QComboBox()
+            for name in AVAILABLE_MODELS:
+                self.set_model.addItem(name, name)
+            idx = self.set_model.findData(self._settings_repo.claude_model())
+            if idx >= 0:
+                self.set_model.setCurrentIndex(idx)
+            col.addWidget(self.set_model)
 
-        save = QPushButton("Save backend settings")
-        save.clicked.connect(self._on_save_settings)
-        col.addWidget(save)
-        self.set_status = QLabel("")
-        self.set_status.setObjectName("Disclaimer")
-        self.set_status.setWordWrap(True)
-        col.addWidget(self.set_status)
+            save = QPushButton("Save backend settings")
+            save.clicked.connect(self._on_save_settings)
+            col.addWidget(save)
+            self.set_status = QLabel("")
+            self.set_status.setObjectName("Disclaimer")
+            self.set_status.setWordWrap(True)
+            col.addWidget(self.set_status)
 
-        # --- hotkey ---
-        col.addWidget(QLabel("<b>Show / hide hotkey</b>"))
-        row = QHBoxLayout()
-        self.set_hotkey = QLineEdit(self._settings_repo.get("hotkey", "Alt+Insert"))
-        self.set_hotkey.setPlaceholderText("e.g. Alt+Insert, Ctrl+Shift+M")
-        row.addWidget(self.set_hotkey, 1)
-        apply_hk = QPushButton("Apply")
-        apply_hk.clicked.connect(self._on_apply_hotkey)
-        row.addWidget(apply_hk)
-        col.addLayout(row)
-        self.set_hotkey_status = QLabel("")
-        self.set_hotkey_status.setObjectName("Disclaimer")
-        self.set_hotkey_status.setWordWrap(True)
-        col.addWidget(self.set_hotkey_status)
+            # --- hotkey ---
+            col.addWidget(QLabel("<b>Show / hide hotkey</b>"))
+            row = QHBoxLayout()
+            self.set_hotkey = QLineEdit(self._settings_repo.get("hotkey", "Alt+Insert"))
+            self.set_hotkey.setPlaceholderText("e.g. Alt+Insert, Ctrl+Shift+M")
+            row.addWidget(self.set_hotkey, 1)
+            apply_hk = QPushButton("Apply")
+            apply_hk.clicked.connect(self._on_apply_hotkey)
+            row.addWidget(apply_hk)
+            col.addLayout(row)
+            self.set_hotkey_status = QLabel("")
+            self.set_hotkey_status.setObjectName("Disclaimer")
+            self.set_hotkey_status.setWordWrap(True)
+            col.addWidget(self.set_hotkey_status)
+
+        # --- add a game ---
+        col.addWidget(QLabel("<b>Add a game</b>"))
+        self.addgame_name = QLineEdit()
+        self.addgame_name.setPlaceholderText("Name (e.g. Subnautica)")
+        col.addWidget(self.addgame_name)
+        self.addgame_wiki = QLineEdit()
+        self.addgame_wiki.setPlaceholderText("Wiki URL (e.g. https://subnautica.fandom.com)")
+        col.addWidget(self.addgame_wiki)
+        self.addgame_procs = QLineEdit()
+        self.addgame_procs.setPlaceholderText("Process name(s), comma-separated")
+        col.addWidget(self.addgame_procs)
+        addgame_btn = QPushButton("Add game")
+        addgame_btn.clicked.connect(self._on_add_game)
+        col.addWidget(addgame_btn)
 
         col.addStretch(1)
         return page
@@ -694,6 +714,21 @@ class OverlayWindow(QWidget):
         self.set_hotkey_status.setText(
             f"Hotkey set to {spec}." if applied else
             f"Saved {spec}, but the OS rejected it (already in use?) — it'll apply next launch.")
+
+    def _on_add_game(self):
+        if self._games_repo is None:
+            return
+        name = self.addgame_name.text().strip()
+        wiki = self.addgame_wiki.text().strip() or None
+        procs = [p.strip() for p in self.addgame_procs.text().split(",") if p.strip()]
+        if not name:
+            return
+        self._games_repo.add(name, procs, wiki)
+        self._games = self._games_repo.list_games()
+        self._rebuild_game_menu()
+        self.addgame_name.clear()
+        self.addgame_wiki.clear()
+        self.addgame_procs.clear()
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
@@ -751,7 +786,7 @@ class OverlayWindow(QWidget):
         if self._articles_repo is None:
             self.guides_status.setText("")
             return
-        n = self._articles_repo.count()
+        n = self._articles_repo.count(game_id=self._active_game_id())
         articles_done = True
         redirects_done = True
         if self._scrape_state_repo is not None:
@@ -793,6 +828,16 @@ class OverlayWindow(QWidget):
     def set_games(self, games):
         self._games = list(games)
         self._rebuild_game_menu()
+
+    def _active_game_id(self):
+        if self.active_game is not None:
+            return self.active_game.id
+        # Fall back to the seeded Minecraft game so retrieval still works before
+        # detection sets an active game.
+        for g in self._games:
+            if g.name == "Minecraft":
+                return g.id
+        return None
 
     def _set_active(self, game, manual: bool):
         self.active_game = game

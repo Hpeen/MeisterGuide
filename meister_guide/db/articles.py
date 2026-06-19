@@ -31,15 +31,16 @@ class ArticlesRepo:
     def __init__(self, conn):
         self._conn = conn
 
-    def add_article(self, pageid, title, text, revid, url, commit=True) -> bool:
+    def add_article(self, pageid, title, text, revid, url, game_id=None, commit=True) -> bool:
         """Insert one article + its FTS row. Skips (returns False) if the pageid
         is already stored, so a resumed/re-run ingest is idempotent.
         Pass commit=False to batch many inserts under one transaction."""
         body = zlib.compress(text.encode("utf-8"))
         cur = self._conn.execute(
-            "INSERT OR IGNORE INTO articles (pageid, title, body_zlib, revid, url) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (pageid, title, body, revid, url),
+            "INSERT OR IGNORE INTO articles "
+            "(pageid, title, body_zlib, revid, url, game_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (pageid, title, body, revid, url, game_id),
         )
         if cur.rowcount == 0:
             return False
@@ -69,8 +70,12 @@ class ArticlesRepo:
         ).fetchone()
         return row[0] if row else None
 
-    def count(self) -> int:
-        return self._conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+    def count(self, game_id=None) -> int:
+        if game_id is None:
+            return self._conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM articles WHERE game_id = ?", (game_id,)
+        ).fetchone()[0]
 
     def clear(self) -> None:
         # 'delete-all' is the supported way to empty a contentless FTS5 index.
@@ -123,7 +128,7 @@ class ArticlesRepo:
             hits.append(SearchHit(row[0], row[1], make_excerpt(body, query), row[3]))
         return hits
 
-    def search_ranked(self, raw_query, limit=3, candidate_pool=15):
+    def search_ranked(self, raw_query, limit=3, candidate_pool=15, game_id=None):
         """Chat retrieval: clean the query to content terms, pull a pool of FTS
         candidates with their bm25 rank, then re-rank so the canonical article
         wins over changelog/disambiguation noise. Returns up to `limit` SearchHits.
@@ -143,24 +148,47 @@ class ArticlesRepo:
                     self._terms_to_or_query(terms)):
             if not fts:
                 continue
-            for rowid, rank in self._conn.execute(
-                "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
-                "ORDER BY rank LIMIT ?",
-                (fts, candidate_pool),
-            ).fetchall():
+            if game_id is None:
+                pass_rows = self._conn.execute(
+                    "SELECT rowid, rank FROM articles_fts WHERE articles_fts MATCH ? "
+                    "ORDER BY rank LIMIT ?",
+                    (fts, candidate_pool),
+                ).fetchall()
+            else:
+                # FTS5 MATCH must name the virtual table itself (`articles_fts`),
+                # not the alias `f` — the aliased form raises a syntax error here.
+                pass_rows = self._conn.execute(
+                    "SELECT f.rowid, f.rank FROM articles_fts f "
+                    "JOIN articles a ON a.id = f.rowid "
+                    "WHERE articles_fts MATCH ? AND a.game_id = ? "
+                    "ORDER BY f.rank LIMIT ?",
+                    (fts, game_id, candidate_pool),
+                ).fetchall()
+            for rowid, rank in pass_rows:
                 if rowid not in best_rank or rank < best_rank[rowid]:
                     best_rank[rowid] = rank
             # Redirect aliases: match the same query against alias titles and
             # resolve each to its target article's rowid, folding it into the
             # same pool. This is the only way a redirect-only topic (e.g. "Wolf",
             # which has no article of its own) reaches retrieval at all.
-            for rowid, rank in self._conn.execute(
-                "SELECT a.id, rf.rank FROM redirects_fts rf "
-                "JOIN redirects r ON r.id = rf.rowid "
-                "JOIN articles a ON a.pageid = r.target_pageid "
-                "WHERE redirects_fts MATCH ? ORDER BY rf.rank LIMIT ?",
-                (fts, candidate_pool),
-            ).fetchall():
+            if game_id is None:
+                redir_rows = self._conn.execute(
+                    "SELECT a.id, rf.rank FROM redirects_fts rf "
+                    "JOIN redirects r ON r.id = rf.rowid "
+                    "JOIN articles a ON a.pageid = r.target_pageid "
+                    "WHERE redirects_fts MATCH ? ORDER BY rf.rank LIMIT ?",
+                    (fts, candidate_pool),
+                ).fetchall()
+            else:
+                redir_rows = self._conn.execute(
+                    "SELECT a.id, rf.rank FROM redirects_fts rf "
+                    "JOIN redirects r ON r.id = rf.rowid "
+                    "JOIN articles a ON a.pageid = r.target_pageid "
+                    "WHERE redirects_fts MATCH ? AND a.game_id = ? "
+                    "ORDER BY rf.rank LIMIT ?",
+                    (fts, game_id, candidate_pool),
+                ).fetchall()
+            for rowid, rank in redir_rows:
                 if rowid not in best_rank or rank < best_rank[rowid]:
                     best_rank[rowid] = rank
         candidates = []

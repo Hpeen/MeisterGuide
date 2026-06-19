@@ -9,7 +9,7 @@ from meister_guide.theme.stylesheet import build_stylesheet
 from meister_guide.theme.fonts import load_fonts
 from meister_guide.overlay.window import OverlayWindow
 from meister_guide.input.hotkey import GlobalHotkey
-from meister_guide.db.database import default_db_path, connect, init_db
+from meister_guide.db.database import default_db_path, connect, init_db, migrate_game_ids
 from meister_guide.db.games import GamesRepo
 from meister_guide.db.articles import ArticlesRepo, ScrapeStateRepo
 from meister_guide.db.chat import ChatRepo
@@ -49,6 +49,7 @@ def main() -> int:
     games_repo = GamesRepo(conn)
     games_repo.seed_defaults()
     games_repo.reconcile_builtin_games()  # upgrade a stale Minecraft process list
+    migrate_game_ids(conn)                # backfill NULL game_ids to Minecraft
     articles_repo = ArticlesRepo(conn)
     scrape_state_repo = ScrapeStateRepo(conn)
     redirect_state_repo = RedirectStateRepo(conn)
@@ -72,7 +73,8 @@ def main() -> int:
                             settings_repo=settings_repo,
                             scrape_state_repo=scrape_state_repo,
                             redirect_state_repo=redirect_state_repo,
-                            hotkey=hotkey)
+                            hotkey=hotkey,
+                            games_repo=games_repo)
 
     detector = GameDetector(games_provider=games_repo.list_games)
     detector.detected.connect(overlay.set_detected_game)

@@ -59,7 +59,8 @@ PHASE3_TABLES = [
         title TEXT NOT NULL,
         body_zlib BLOB NOT NULL,
         revid INTEGER,
-        url TEXT
+        url TEXT,
+        game_id INTEGER REFERENCES games(id)
     )
     """,
     "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(title, body, content='')",
@@ -86,7 +87,8 @@ PHASE6_TABLES = [
     CREATE TABLE IF NOT EXISTS redirects (
         id INTEGER PRIMARY KEY,
         title TEXT UNIQUE NOT NULL,
-        target_pageid INTEGER NOT NULL
+        target_pageid INTEGER NOT NULL,
+        game_id INTEGER REFERENCES games(id)
     )
     """,
     "CREATE VIRTUAL TABLE IF NOT EXISTS redirects_fts USING fts5(title, content='')",

@@ -10,7 +10,7 @@ def _url_for(title: str) -> str:
 
 
 def run_ingest(client, articles_repo, state_repo, conn,
-               progress_cb=None, should_cancel=None):
+               progress_cb=None, should_cancel=None, game_id=None):
     """Ingest all article batches from `client` into the repos.
 
     Resumes from the saved continue token, commits once per batch (so a crash
@@ -29,17 +29,17 @@ def run_ingest(client, articles_repo, state_repo, conn,
     try:
         _ingest_from(state_repo.load().continue_token, state_repo.load().done,
                      client, articles_repo, state_repo, conn, total,
-                     progress_cb, should_cancel)
+                     progress_cb, should_cancel, game_id)
     except InvalidContinueError:
         # Drop the stale token and re-walk from the start (idempotent).
         restart_done = articles_repo.count()
         state_repo.save(ScrapeState(None, restart_done, total))
         _ingest_from(None, restart_done, client, articles_repo, state_repo,
-                     conn, total, progress_cb, should_cancel)
+                     conn, total, progress_cb, should_cancel, game_id)
 
 
 def _ingest_from(token, done, client, articles_repo, state_repo, conn, total,
-                 progress_cb, should_cancel):
+                 progress_cb, should_cancel, game_id=None):
     for articles, next_token in client.iter_batches(start_token=token):
         if should_cancel and should_cancel():
             return
@@ -48,7 +48,7 @@ def _ingest_from(token, done, client, articles_repo, state_repo, conn, total,
                 continue  # skip versioned/changelog/disambig pages — never useful
             if articles_repo.add_article(art.pageid, art.title, art.text,
                                          art.revid, _url_for(art.title),
-                                         commit=False):
+                                         game_id=game_id, commit=False):
                 done += 1
         state_repo.save(ScrapeState(next_token, done, total), commit=False)
         conn.commit()

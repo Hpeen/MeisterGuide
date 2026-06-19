@@ -168,3 +168,49 @@ def test_search_ranked_prefers_topic_specific_article(tmp_path):
                      None, "u2")
     hits = repo.search_ranked("when do spiders spawn with potion effects", limit=2)
     assert hits[0].title == "Spider"
+
+
+def test_add_article_stores_game_id(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (7, 'G7', '[]')")
+    repo._conn.commit()
+    repo.add_article(1, "Creeper", "a creeper", 1, "u1", game_id=7)
+    row = repo._conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()
+    assert row[0] == 7
+
+
+def test_search_ranked_scoped_to_game(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    repo.add_article(1, "Creeper", "A creeper explodes in Minecraft.", 1, "u1", game_id=1)
+    repo.add_article(2, "Creeper", "A creeper plant grows in this other game.", 1, "u2", game_id=2)
+    g1 = repo.search_ranked("creeper", limit=5, game_id=1)
+    assert [h.pageid for h in g1] == [1]          # only game 1's article
+    g2 = repo.search_ranked("creeper", limit=5, game_id=2)
+    assert [h.pageid for h in g2] == [2]
+
+
+def test_search_ranked_redirect_alias_scoped_to_game(tmp_path):
+    from meister_guide.db.redirects import RedirectsRepo
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    # Game 1: a "Wolf" article reachable via the "Doggy" redirect alias.
+    repo.add_article(10, "Wolf", "A wolf is a tameable mob.", 1, "u1", game_id=1)
+    RedirectsRepo(repo._conn).add_redirect("Doggy", 10, game_id=1)
+    repo.add_article(20, "Leviathan", "A leviathan lurks in game two.", 1, "u2", game_id=2)
+    # The alias resolves under its own game, and must NOT leak into another game.
+    assert any(h.pageid == 10 for h in repo.search_ranked("doggy", limit=5, game_id=1))
+    assert all(h.pageid != 10 for h in repo.search_ranked("doggy", limit=5, game_id=2))
+
+
+def test_count_scoped_to_game(tmp_path):
+    repo = _repo(tmp_path)
+    repo._conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'G1','[]'),(2,'G2','[]')")
+    repo._conn.commit()
+    repo.add_article(1, "A", "x", 1, "u1", game_id=1)
+    repo.add_article(2, "B", "y", 1, "u2", game_id=2)
+    assert repo.count() == 2            # unscoped total
+    assert repo.count(game_id=1) == 1
+    assert repo.count(game_id=2) == 1
