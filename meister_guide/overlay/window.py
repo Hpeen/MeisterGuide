@@ -29,6 +29,7 @@ from meister_guide.overlay.win32_topmost import (
     set_window_topmost,
 )
 from meister_guide.scraper.worker import IngestWorker
+from meister_guide.guides_status import guides_status_text
 
 class _PanelWidget(QWidget):
     def __init__(self):
@@ -63,7 +64,8 @@ class _SpineWidget(QWidget):
 class OverlayWindow(QWidget):
     def __init__(self, settings: QSettings, games=None, articles_repo=None,
                  db_path=None, chat_repo=None, ollama_client=None,
-                 settings_repo=None, hotkey=None, claude_factory=ClaudeClient):
+                 settings_repo=None, hotkey=None, claude_factory=ClaudeClient,
+                 scrape_state_repo=None, redirect_state_repo=None):
         super().__init__()
         self._settings = settings
         self._settings_repo = settings_repo
@@ -78,6 +80,8 @@ class OverlayWindow(QWidget):
         self._demoted_hwnd = None
         self._articles_repo = articles_repo
         self._db_path = db_path
+        self._scrape_state_repo = scrape_state_repo
+        self._redirect_state_repo = redirect_state_repo
         self._ingest_thread = None
         self._ingest_worker = None
         self._last_progress_done = None  # to detect a stalled (catching-up) count
@@ -546,18 +550,23 @@ class OverlayWindow(QWidget):
         self._ingest_thread.start()
 
     def _on_ingest_progress(self, done, total):
-        if total > 0:
-            self.guides_progress.setRange(0, total)
+        # `total` is the wiki's content-article statistic, but `done` counts every
+        # namespace-0 page enumerated (disambiguations, stubs, …), so done can
+        # overtake the estimate. Grow the denominator to match once it does, so the
+        # bar never overflows and the text never inverts (e.g. "17,000/16,000").
+        effective_total = max(total, done) if total > 0 else 0
+        if effective_total > 0:
+            self.guides_progress.setRange(0, effective_total)
             self.guides_progress.setValue(done)
         # When the stored count stalls (same as last update) mid-run, the ingest
         # is re-walking already-saved articles after a resume — show that rather
         # than a frozen-looking counter.
-        if done == self._last_progress_done and 0 < done < (total or 0):
+        if done == self._last_progress_done and 0 < done < effective_total:
             self.guides_status.setText(f"Catching up… ({done:,} saved)")
-        elif total:
-            self.guides_status.setText(f"{done:,}/{total:,}")
+        elif effective_total:
+            self.guides_status.setText(f"{done:,}/{effective_total:,}")
         else:
-            self.guides_status.setText(f"{done:,}")
+            self.guides_status.setText(f"Linking related topics… ({done:,})")
         self._last_progress_done = done
 
     def _on_ingest_done(self):
@@ -729,8 +738,16 @@ class OverlayWindow(QWidget):
             self.guides_status.setText("")
             return
         n = self._articles_repo.count()
+        articles_done = True
+        redirects_done = True
+        if self._scrape_state_repo is not None:
+            articles_done = (self._scrape_state_repo.load().continue_token is None
+                             and n > 0)
+        if self._redirect_state_repo is not None:
+            rs = self._redirect_state_repo.load()
+            redirects_done = rs.continue_token is None and rs.done > 0
         self.guides_status.setText(
-            f"{n:,} articles" if n else "No guides yet — click Update guides"
+            guides_status_text(n, articles_done, redirects_done)
         )
 
     # ---- game selection -------------------------------------------------

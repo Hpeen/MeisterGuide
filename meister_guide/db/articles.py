@@ -5,7 +5,7 @@ import zlib
 from dataclasses import dataclass
 from typing import Optional
 
-from meister_guide.scraper.excerpt import make_excerpt
+from meister_guide.scraper.excerpt import make_excerpt, deinflect, best_window
 from meister_guide.ai.query import clean_query
 from meister_guide.ai.ranking import rerank
 
@@ -140,6 +140,7 @@ class ArticlesRepo:
                 if rowid not in best_rank or rank < best_rank[rowid]:
                     best_rank[rowid] = rank
         candidates = []
+        coverage = {}
         for rowid, rank in best_rank.items():
             row = self._conn.execute(
                 "SELECT pageid, title, body_zlib, url FROM articles WHERE id = ?",
@@ -149,8 +150,12 @@ class ArticlesRepo:
                 continue
             body = zlib.decompress(row[2]).decode("utf-8")
             hit = SearchHit(row[0], row[1], make_excerpt(body, raw_query), row[3])
+            # Topic coverage = distinct query terms inside the best passage window
+            # (same width as the RAG passage), reused by rerank to favor specifics.
+            _, _, cov = best_window(body, terms, 2000)
+            coverage[hit.pageid] = cov
             candidates.append((rank, hit))
-        return rerank(candidates, terms, limit)
+        return rerank(candidates, terms, limit, coverage=coverage)
 
     @staticmethod
     def _to_fts_query(query) -> str:
@@ -172,11 +177,9 @@ class ArticlesRepo:
         seen = set()
         for t in terms:
             candidates_t = [t]
-            # crude English de-inflection: strip trailing 's' / 'es'
-            if t.endswith("es") and len(t) > 4:
-                candidates_t.append(t[:-2])
-            elif t.endswith("s") and len(t) > 3:
-                candidates_t.append(t[:-1])
+            root = deinflect(t)
+            if root != t:
+                candidates_t.append(root)
             for candidate in candidates_t:
                 if candidate not in seen:
                     seen.add(candidate)

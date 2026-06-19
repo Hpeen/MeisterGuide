@@ -44,3 +44,45 @@ def test_window_bounds_centers_on_match():
 def test_window_bounds_no_match_is_leading_window():
     from meister_guide.scraper.excerpt import window_bounds
     assert window_bounds("alpha beta", "zzz", 5) == (0, 5)
+
+
+def test_deinflect_strips_plurals():
+    from meister_guide.scraper.excerpt import deinflect
+    assert deinflect("spiders") == "spider"
+    assert deinflect("effects") == "effect"
+    assert deinflect("torches") == "torch"   # 'es' rule
+    assert deinflect("ash") == "ash"          # too short to strip
+    assert deinflect("redstone") == "redstone"
+
+
+def test_best_window_picks_densest_cluster_not_intro():
+    from meister_guide.scraper.excerpt import best_window
+    intro = "A spider is a mob. "                 # only 'spider' near index 0
+    filler = "filler " * 300                       # ~2100 chars
+    answer = "In Hard difficulty spiders spawn with a status effect."
+    body = intro + filler + answer
+    terms = ["spiders", "spawn", "potion", "effects"]
+    start, end, distinct = best_window(body, terms, 2000)
+    assert body[start:end].find("Hard difficulty") != -1   # answer is inside
+    assert distinct >= 3                                    # spider+spawn+effect
+
+
+def test_best_window_single_term_centers_on_match():
+    from meister_guide.scraper.excerpt import best_window
+    body = "x" * 100 + "creeper" + "y" * 100
+    start, end, distinct = best_window(body, ["creeper"], 60)
+    assert start <= 100 < end
+    assert distinct == 1
+    assert end - start <= 60
+
+
+def test_best_window_no_match_is_leading_window():
+    from meister_guide.scraper.excerpt import best_window
+    assert best_window("alpha beta", ["zzz"], 5) == (0, 5, 0)
+
+
+def test_window_bounds_multi_term_prefers_cluster():
+    from meister_guide.scraper.excerpt import window_bounds
+    body = "spider intro. " + ("z" * 400) + " spider spawn effect cluster."
+    start, end = window_bounds(body, "spider spawn effect", 120)
+    assert "cluster" in body[start:end]   # not the lone 'spider' in the intro
