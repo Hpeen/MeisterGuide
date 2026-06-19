@@ -73,7 +73,8 @@ def main() -> int:
                             settings_repo=settings_repo,
                             scrape_state_repo=scrape_state_repo,
                             redirect_state_repo=redirect_state_repo,
-                            hotkey=hotkey)
+                            hotkey=hotkey,
+                            games_repo=games_repo)
 
     detector = GameDetector(games_provider=games_repo.list_games)
     detector.detected.connect(overlay.set_detected_game)
