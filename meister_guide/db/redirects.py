@@ -31,6 +31,28 @@ class RedirectsRepo:
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM redirects").fetchone()[0]
 
+    def count_by_game(self, game_id) -> int:
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM redirects WHERE game_id = ?", (game_id,)
+        ).fetchone()[0]
+
+    def delete_by_game(self, game_id) -> int:
+        """Delete all redirect aliases for one game plus their contentless-FTS
+        rows; return the number deleted. Contentless FTS5 needs the original
+        title supplied to delete an index row."""
+        rows = self._conn.execute(
+            "SELECT id, title FROM redirects WHERE game_id = ?", (game_id,)
+        ).fetchall()
+        for id_, title in rows:
+            self._conn.execute(
+                "INSERT INTO redirects_fts(redirects_fts, rowid, title) "
+                "VALUES('delete', ?, ?)",
+                (id_, title),
+            )
+            self._conn.execute("DELETE FROM redirects WHERE id = ?", (id_,))
+        self._conn.commit()
+        return len(rows)
+
     def clear(self) -> None:
         # 'delete-all' is the supported way to empty a contentless FTS5 index.
         self._conn.execute("INSERT INTO redirects_fts(redirects_fts) VALUES('delete-all')")
