@@ -494,6 +494,7 @@ class OverlayWindow(QWidget):
         self.chat_status.setText("Searching the web…")
         self.chat_input.setEnabled(False)
         self.chat_send_btn.setEnabled(False)
+        # _web_enabled() (checked by the caller) guarantees _settings_repo is set.
         self._web_thread = QThread(self)
         self._web_worker = WebFetchWorker(
             str(self._db_path), self._active_game_id(), question,
@@ -515,12 +516,8 @@ class OverlayWindow(QWidget):
             self.chat_status.setText("")
             return
         sources, passages = self._retrieve(question)
-        if self._chat_view and self._chat_view[-1]["role"] == "assistant":
-            self._chat_view[-1]["sources"] = sources
-        self._render_chat()
-        self._pending_messages = build_messages(question, passages, history)
-        self._attempt = 0
-        self._start_chat_worker()
+        # Post-web-fetch always reuses the on-screen placeholder assistant turn.
+        self._answer_now(question, history, sources, passages, reuse_turn=True)
 
     def _teardown_web_thread(self):
         if self._web_thread is not None:

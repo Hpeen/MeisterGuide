@@ -102,6 +102,19 @@ def test_shutdown_cancels_active_web_worker(tmp_path):
     assert fw.cancelled
 
 
+def test_hide_cancels_active_web_worker(tmp_path):
+    from PySide6.QtGui import QHideEvent
+    w, repo = _window(tmp_path, key="brv-123")
+    class FakeWorker:
+        def __init__(self): self.cancelled = False
+        def cancel(self): self.cancelled = True
+    fw = FakeWorker()
+    w._web_worker = fw
+    w.hideEvent(QHideEvent())
+    assert fw.cancelled
+    assert w._chat_cancelled is True
+
+
 def test_settings_persists_brave_key_and_toggle(tmp_path):
     w, repo = _window(tmp_path)
     w.set_brave_key.setText("brv-xyz")
