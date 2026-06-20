@@ -22,6 +22,16 @@ def test_accepts_category_prefixed_name():
     assert seen[0]["cmtitle"] == "Category:Items"
 
 
+def test_none_category_name_returns_empty_without_request():
+    calls = []
+    def fake_get(params):
+        calls.append(params)
+        return {"query": {"categorymembers": []}}
+    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    assert client.iter_category_members(None) == []
+    assert calls == []
+
+
 def test_empty_category_name_returns_empty_without_request():
     calls = []
     def fake_get(params):

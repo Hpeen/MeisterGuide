@@ -27,7 +27,7 @@ class WikiArticle:
 
 
 def _normalize_category(name):
-    """Turn 'Mobs' or 'Category:Mobs' into a 'Category:'-prefixed title.
+    """Ensure a category name carries a 'Category:' prefix (e.g. 'Mobs' or 'Category:Mobs').
     Returns '' for blank input so the caller can short-circuit."""
     name = (name or "").strip()
     if not name:
@@ -221,7 +221,9 @@ class WikiClient:
         titles, subcats, seen = [], [], set()
         for member in self._category_members(cat, "0|14"):
             if member.get("ns") == 14:
-                subcats.append(member["title"])
+                sub = member.get("title")
+                if sub:
+                    subcats.append(sub)
             else:
                 title = member.get("title")
                 if title and title not in seen:
