@@ -805,7 +805,7 @@ class OverlayWindow(QWidget):
             self.set_brave_key = QLineEdit(self._settings_repo.brave_api_key())
             self.set_brave_key.setEchoMode(QLineEdit.Password)
             self.set_brave_key.setPlaceholderText(
-                "brv-…  (enables web search when the wiki can't answer)")
+                "brv-…  optional — leave blank to use free DuckDuckGo")
             col.addWidget(self.set_brave_key)
             self.set_web_fallback = QCheckBox("Allow web search fallback")
             self.set_web_fallback.setChecked(
@@ -1134,10 +1134,12 @@ class OverlayWindow(QWidget):
                    if self._settings_repo is not None else BACKEND_AUTO)
         key = (self._settings_repo.claude_api_key()
                if self._settings_repo is not None else "")
-        online = backend == BACKEND_CLAUDE or (backend == BACKEND_AUTO and key)
+        online = (backend == BACKEND_CLAUDE or (backend == BACKEND_AUTO and key)
+                  or (self._settings_repo is not None
+                      and self._settings_repo.web_fallback_enabled()))
         self.footer_note.setText(
-            "local-first · optional online" if online
-            else "runs locally · no account · no cloud")
+            "online · web-augmented" if online
+            else "offline mode · runs locally")
 
     # ---- guides ---------------------------------------------------------
     def _on_search(self, text):
