@@ -64,6 +64,7 @@ def test_clear_deletes_guides(tmp_path):
     w._confirm = lambda *a: True
     w._on_clear_guides()
     assert articles.count(game_id=sub.id) == 0
+    assert w._redirects_repo.count_by_game(sub.id) == 0
     assert "Cleared 1 guides" in w.manage_status.text()
 
 
@@ -93,6 +94,7 @@ def test_remove_game_deletes_and_resets_active(tmp_path):
     w._on_remove_game()
     assert all(g.id != sub.id for g in games.list_games())   # game row gone
     assert articles.count(game_id=sub.id) == 0               # guides gone
+    assert w._redirects_repo.count_by_game(sub.id) == 0      # aliases gone
     assert w.active_game is None                              # active reset
 
 

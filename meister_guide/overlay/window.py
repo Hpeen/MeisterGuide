@@ -1053,6 +1053,7 @@ class OverlayWindow(QWidget):
         game_id = self.manage_game.currentData()
         game = next((g for g in self._games if g.id == game_id), None)
         self.manage_count.setText(self._manage_count_text(game_id))
+        self.manage_status.setText("")
         # Minecraft is the seeded default — its guides can be cleared but the
         # game itself can't be removed, so the app always has a default.
         self.manage_remove_btn.setEnabled(
