@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
 from PySide6.QtGui import QPainter, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QTabWidget, QComboBox, QCheckBox,
+    QTabWidget, QComboBox, QCheckBox, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
@@ -16,6 +16,8 @@ from meister_guide.ai.ollama_client import OllamaUnavailable, pick_best_model
 from meister_guide.ai.claude_client import ClaudeClient, AVAILABLE_MODELS
 from meister_guide.ai.worker import ChatStreamWorker
 from meister_guide.db.settings import BACKEND_OLLAMA, BACKEND_CLAUDE, BACKEND_AUTO
+from meister_guide.db.articles import ScrapeState
+from meister_guide.db.redirects import RedirectState
 from meister_guide.input.hotkey import parse_hotkey
 
 from meister_guide.config.dock import (
@@ -70,7 +72,7 @@ class OverlayWindow(QWidget):
                  db_path=None, chat_repo=None, ollama_client=None,
                  settings_repo=None, hotkey=None, claude_factory=ClaudeClient,
                  scrape_state_repo=None, redirect_state_repo=None,
-                 games_repo=None):
+                 games_repo=None, redirects_repo=None):
         super().__init__()
         self._settings = settings
         self._settings_repo = settings_repo
@@ -85,6 +87,7 @@ class OverlayWindow(QWidget):
         self._demoted_hwnd = None
         self._articles_repo = articles_repo
         self._games_repo = games_repo
+        self._redirects_repo = redirects_repo
         self._db_path = db_path
         self._scrape_state_repo = scrape_state_repo
         self._redirect_state_repo = redirect_state_repo
@@ -868,6 +871,29 @@ class OverlayWindow(QWidget):
         col.addWidget(self.seed_status)
         self._refresh_seed_games()
 
+        # --- manage guides ---
+        col.addWidget(QLabel("<b>Manage guides</b>"))
+        self.manage_game = QComboBox()
+        self.manage_game.currentIndexChanged.connect(
+            lambda _i: self._on_manage_pick())
+        col.addWidget(self.manage_game)
+        self.manage_count = QLabel("")
+        self.manage_count.setObjectName("Disclaimer")
+        col.addWidget(self.manage_count)
+        manage_row = QHBoxLayout()
+        self.manage_clear_btn = QPushButton("Clear guides")
+        self.manage_clear_btn.clicked.connect(self._on_clear_guides)
+        manage_row.addWidget(self.manage_clear_btn)
+        self.manage_remove_btn = QPushButton("Remove game")
+        self.manage_remove_btn.clicked.connect(self._on_remove_game)
+        manage_row.addWidget(self.manage_remove_btn)
+        col.addLayout(manage_row)
+        self.manage_status = QLabel("")
+        self.manage_status.setObjectName("Disclaimer")
+        self.manage_status.setWordWrap(True)
+        col.addWidget(self.manage_status)
+        self._refresh_manage_games()
+
         col.addStretch(1)
         return page
 
@@ -910,6 +936,7 @@ class OverlayWindow(QWidget):
         self._games = self._games_repo.list_games()
         self._rebuild_game_menu()
         self._refresh_seed_games()
+        self._refresh_manage_games()
         self.addgame_name.clear()
         self.addgame_wiki.clear()
         self.addgame_procs.clear()
@@ -988,6 +1015,102 @@ class OverlayWindow(QWidget):
             self._seed_thread.wait(5000)
         self._seed_thread = None
         self._seed_worker = None
+
+    def _confirm(self, title, text):
+        """Yes/No modal; factored out so tests can stub it. Returns True on Yes."""
+        return QMessageBox.question(
+            self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        ) == QMessageBox.Yes
+
+    def _manage_count_text(self, game_id):
+        if self._articles_repo is None or game_id is None:
+            return ""
+        n = self._articles_repo.count(game_id=game_id)
+        aliases = (self._redirects_repo.count_by_game(game_id)
+                   if self._redirects_repo is not None else 0)
+        return f"{n:,} guides · {aliases:,} aliases"
+
+    def _refresh_manage_games(self):
+        if not hasattr(self, "manage_game"):
+            return
+        current = self.manage_game.currentData()
+        self.manage_game.blockSignals(True)
+        self.manage_game.clear()
+        for game in self._games:
+            self.manage_game.addItem(game.name, game.id)
+        want = current if current is not None else (
+            self.active_game.id if self.active_game is not None else None)
+        if want is not None:
+            idx = self.manage_game.findData(want)
+            if idx >= 0:
+                self.manage_game.setCurrentIndex(idx)
+        self.manage_game.blockSignals(False)
+        self._on_manage_pick()
+
+    def _on_manage_pick(self):
+        if not hasattr(self, "manage_game"):
+            return
+        game_id = self.manage_game.currentData()
+        game = next((g for g in self._games if g.id == game_id), None)
+        self.manage_count.setText(self._manage_count_text(game_id))
+        # Minecraft is the seeded default — its guides can be cleared but the
+        # game itself can't be removed, so the app always has a default.
+        self.manage_remove_btn.setEnabled(
+            game is not None and game.name != "Minecraft")
+
+    def _clear_game_guides(self, game):
+        """Delete a game's stored articles + redirect aliases; reset the
+        single-row scrape/redirect state when it's Minecraft (the only game that
+        uses them). Returns the number of articles deleted."""
+        n = self._articles_repo.delete_by_game(game.id) if self._articles_repo else 0
+        if self._redirects_repo is not None:
+            self._redirects_repo.delete_by_game(game.id)
+        if game.name == "Minecraft":
+            if self._scrape_state_repo is not None:
+                self._scrape_state_repo.save(ScrapeState(None, 0, None))
+            if self._redirect_state_repo is not None:
+                self._redirect_state_repo.save(RedirectState(None, 0))
+        return n
+
+    def _on_clear_guides(self):
+        if self._articles_repo is None:
+            return
+        game = next((g for g in self._games
+                     if g.id == self.manage_game.currentData()), None)
+        if game is None:
+            return
+        if not self._confirm(
+                "Clear guides",
+                f"Delete all stored guides for {game.name}? This can't be undone."):
+            return
+        n = self._clear_game_guides(game)
+        self._on_manage_pick()
+        self._refresh_guides_status()
+        self._refresh_seed_games()
+        self.manage_status.setText(f"Cleared {n:,} guides.")
+
+    def _on_remove_game(self):
+        if self._games_repo is None:
+            return
+        game = next((g for g in self._games
+                     if g.id == self.manage_game.currentData()), None)
+        if game is None or game.name == "Minecraft":
+            return
+        if not self._confirm(
+                "Remove game",
+                f"Remove {game.name} and all its guides? This can't be undone."):
+            return
+        self._clear_game_guides(game)
+        self._games_repo.delete(game.id)
+        self._games = self._games_repo.list_games()
+        if self.active_game is not None and self.active_game.id == game.id:
+            self.active_game = None
+            self._update_game_pill()
+        self._rebuild_game_menu()
+        self._refresh_seed_games()
+        self._refresh_manage_games()
+        self._refresh_guides_status()
+        self.manage_status.setText(f"Removed {game.name}.")
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
@@ -1088,6 +1211,7 @@ class OverlayWindow(QWidget):
         self._games = list(games)
         self._rebuild_game_menu()
         self._refresh_seed_games()
+        self._refresh_manage_games()
 
     def _active_game_id(self):
         if self.active_game is not None:

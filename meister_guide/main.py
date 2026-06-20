@@ -14,7 +14,7 @@ from meister_guide.db.games import GamesRepo
 from meister_guide.db.articles import ArticlesRepo, ScrapeStateRepo
 from meister_guide.db.chat import ChatRepo
 from meister_guide.db.settings import SettingsRepo
-from meister_guide.db.redirects import RedirectStateRepo
+from meister_guide.db.redirects import RedirectsRepo, RedirectStateRepo
 from meister_guide.ai.ollama_client import OllamaClient
 from meister_guide.detector.detector import GameDetector
 
@@ -53,6 +53,7 @@ def main() -> int:
     articles_repo = ArticlesRepo(conn)
     scrape_state_repo = ScrapeStateRepo(conn)
     redirect_state_repo = RedirectStateRepo(conn)
+    redirects_repo = RedirectsRepo(conn)
     chat_repo = ChatRepo(conn)
     settings_repo = SettingsRepo(conn)
     ollama_client = OllamaClient()
@@ -74,7 +75,8 @@ def main() -> int:
                             scrape_state_repo=scrape_state_repo,
                             redirect_state_repo=redirect_state_repo,
                             hotkey=hotkey,
-                            games_repo=games_repo)
+                            games_repo=games_repo,
+                            redirects_repo=redirects_repo)
 
     detector = GameDetector(games_provider=games_repo.list_games)
     detector.detected.connect(overlay.set_detected_game)
