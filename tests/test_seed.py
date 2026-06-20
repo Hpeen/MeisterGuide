@@ -110,3 +110,18 @@ def test_empty_category_ingests_nothing(tmp_path):
     client = FakeClient([], {})
     assert run_category_seed(client, repo, 7, "Mobs") == 0
     assert client.fetched == []
+
+
+def test_missing_page_is_skipped_gracefully(tmp_path):
+    repo = _repo(tmp_path)
+    # "Ghost" is enumerated but absent from by_title -> fetch returns []
+    client = FakeClient(
+        ["Creeper", "Ghost"],
+        {"Creeper": WikiArticle(1, "Creeper", "boom", 5)},
+    )
+    calls = []
+    n = run_category_seed(client, repo, 7, "Mobs",
+                          progress_cb=lambda d, t: calls.append((d, t)))
+    assert n == 1                       # only Creeper ingested
+    assert repo.count(game_id=7) == 1
+    assert calls[-1] == (2, 2)          # progress still advanced for the ghost
