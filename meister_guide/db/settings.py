@@ -14,6 +14,8 @@ _DEFAULTS = {
     "chat_backend": BACKEND_AUTO,
     "claude_api_key": "",
     "claude_model": "claude-opus-4-8",
+    "brave_api_key": "",
+    "web_fallback": "1",
     "dock_edge": "right",
 }
 
@@ -48,3 +50,11 @@ class SettingsRepo:
 
     def claude_model(self):
         return self.get("claude_model")
+
+    def brave_api_key(self):
+        return self.get("brave_api_key")
+
+    def web_fallback_enabled(self):
+        """Web fallback is on when a Brave key is set and the pref isn't paused.
+        Defaults on once a key exists; the Settings checkbox writes '1'/'0'."""
+        return bool(self.brave_api_key()) and self.get("web_fallback") != "0"
