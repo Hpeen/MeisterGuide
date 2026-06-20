@@ -10,6 +10,7 @@ from meister_guide.scraper.wiki_client import WikiClient
 from meister_guide.scraper.ingest import run_ingest
 from meister_guide.scraper.redirect_ingest import run_redirect_ingest
 from meister_guide.scraper.on_demand import run_on_demand_fetch
+from meister_guide.scraper.seed import run_category_seed
 from meister_guide.ai.ranking import is_noise
 
 
@@ -102,6 +103,51 @@ class OnDemandFetchWorker(QObject):
             n = run_on_demand_fetch(client, ArticlesRepo(conn), self._game_id,
                                     self._query, base=self._page_url_base,
                                     should_cancel=lambda: self._cancel)
+        except Exception as err:
+            self.error.emit(str(err))
+            return
+        finally:
+            if conn is not None:
+                conn.close()
+        self.finished.emit(n)
+
+
+class CategorySeedWorker(QObject):
+    """Runs a single per-game category seed off the UI thread. Opens its OWN
+    SQLite connection inside run() (connections aren't thread-safe to share) and
+    builds a WikiClient pointed at the active game's API endpoint."""
+    progress = Signal(int, int)   # done, total
+    finished = Signal(int)        # number of articles ingested
+    error = Signal(str)
+
+    def __init__(self, db_path, game_id, api_url, page_url_base, category,
+                 cap=500, client=None):
+        super().__init__()
+        self._db_path = db_path
+        self._game_id = game_id
+        self._api_url = api_url
+        self._page_url_base = page_url_base
+        self._category = category
+        self._cap = cap
+        self._client = client
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        conn = None
+        n = 0
+        try:
+            conn = connect(self._db_path)
+            init_db(conn)
+            client = self._client or WikiClient(api_url=self._api_url)
+            n = run_category_seed(
+                client, ArticlesRepo(conn), self._game_id, self._category,
+                base=self._page_url_base, cap=self._cap,
+                progress_cb=lambda d, t: self.progress.emit(d, t),
+                should_cancel=lambda: self._cancel,
+            )
         except Exception as err:
             self.error.emit(str(err))
             return

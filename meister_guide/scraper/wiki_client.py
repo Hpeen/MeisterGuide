@@ -26,6 +26,17 @@ class WikiArticle:
     revid: Optional[int]
 
 
+def _normalize_category(name):
+    """Ensure a category name carries a 'Category:' prefix (e.g. 'Mobs' or 'Category:Mobs').
+    Returns '' for blank input so the caller can short-circuit."""
+    name = (name or "").strip()
+    if not name:
+        return ""
+    if name.lower().startswith("category:"):
+        return name
+    return "Category:" + name
+
+
 class WikiClient:
     def __init__(self, api_url=DEFAULT_API, http_get=None, delay=0.0,
                  sleep=time.sleep, max_retries=5, backoff=1.0):
@@ -176,6 +187,57 @@ class WikiClient:
                 return
             token = next_token
             self._sleep(self._delay)
+
+    def _category_members(self, category, namespaces):
+        """Yield member dicts ({'pageid','ns','title'}) for one category,
+        following cmcontinue. `namespaces` is a cmnamespace value, e.g. '0|14'
+        (articles + subcategories) or '0' (articles only)."""
+        token = None
+        while True:
+            params = {
+                "action": "query", "format": "json",
+                "list": "categorymembers", "cmtitle": category,
+                "cmnamespace": namespaces, "cmlimit": 500, "maxlag": 5,
+            }
+            if token:
+                params.update(token)
+            data = self._fetch(params)
+            for member in data.get("query", {}).get("categorymembers", []):
+                yield member
+            cont = data.get("continue")
+            if not cont:
+                return
+            token = cont
+            self._sleep(self._delay)
+
+    def iter_category_members(self, category):
+        """Article titles in `category`, walked one level deep: the category's
+        direct article members (ns 0) plus the article members of each immediate
+        subcategory (ns 14). Deduped, order-preserving. Returns [] for a blank
+        category name without making a request."""
+        cat = _normalize_category(category)
+        if not cat:
+            return []
+        titles, subcats, seen = [], [], set()
+        for member in self._category_members(cat, "0|14"):
+            if member.get("ns") == 14:
+                sub = member.get("title")
+                if sub:
+                    subcats.append(sub)
+            else:
+                title = member.get("title")
+                if title and title not in seen:
+                    seen.add(title)
+                    titles.append(title)
+        for sub in subcats:
+            for member in self._category_members(sub, "0"):
+                if member.get("ns") != 0:
+                    continue
+                title = member.get("title")
+                if title and title not in seen:
+                    seen.add(title)
+                    titles.append(title)
+        return titles
 
     def iter_batches(self, start_token=None):
         """Yield (list[WikiArticle], next_token|None) per API batch."""

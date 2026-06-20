@@ -28,7 +28,9 @@ from meister_guide.overlay.win32_topmost import (
     is_window_topmost,
     set_window_topmost,
 )
-from meister_guide.scraper.worker import IngestWorker, OnDemandFetchWorker
+from meister_guide.scraper.worker import (
+    IngestWorker, OnDemandFetchWorker, CategorySeedWorker,
+)
 from meister_guide.db.games import api_url_for
 from meister_guide.guides_status import guides_status_text
 from meister_guide.overlay.chat_manager import ChatManagerDialog
@@ -90,6 +92,8 @@ class OverlayWindow(QWidget):
         self._ingest_worker = None
         self._fetch_thread = None
         self._fetch_worker = None
+        self._seed_thread = None
+        self._seed_worker = None
         self._last_progress_done = None  # to detect a stalled (catching-up) count
         self._chat_repo = chat_repo
         self._ollama = ollama_client
@@ -770,6 +774,27 @@ class OverlayWindow(QWidget):
         addgame_btn.clicked.connect(self._on_add_game)
         col.addWidget(addgame_btn)
 
+        # --- seed guides from a category ---
+        col.addWidget(QLabel("<b>Seed guides from a category</b>"))
+        self.seed_game = QComboBox()
+        col.addWidget(self.seed_game)
+        self.seed_category = QLineEdit()
+        self.seed_category.setPlaceholderText("Wiki category (e.g. Mobs)")
+        col.addWidget(self.seed_category)
+        seed_row = QHBoxLayout()
+        self.seed_btn = QPushButton("Seed")
+        self.seed_btn.clicked.connect(self._on_seed_category)
+        seed_row.addWidget(self.seed_btn)
+        self.seed_progress = QProgressBar()
+        self.seed_progress.setVisible(False)
+        seed_row.addWidget(self.seed_progress, 1)
+        col.addLayout(seed_row)
+        self.seed_status = QLabel("")
+        self.seed_status.setObjectName("Disclaimer")
+        self.seed_status.setWordWrap(True)
+        col.addWidget(self.seed_status)
+        self._refresh_seed_games()
+
         col.addStretch(1)
         return page
 
@@ -808,9 +833,85 @@ class OverlayWindow(QWidget):
         self._games_repo.add(name, procs, wiki)
         self._games = self._games_repo.list_games()
         self._rebuild_game_menu()
+        self._refresh_seed_games()
         self.addgame_name.clear()
         self.addgame_wiki.clear()
         self.addgame_procs.clear()
+
+    def _refresh_seed_games(self):
+        if not hasattr(self, "seed_game"):
+            return
+        current = self.seed_game.currentData()
+        self.seed_game.clear()
+        for game in self._games:
+            self.seed_game.addItem(game.name, game.id)
+        # default to the active game when nothing was previously chosen
+        want = current if current is not None else (
+            self.active_game.id if self.active_game is not None else None)
+        if want is not None:
+            idx = self.seed_game.findData(want)
+            if idx >= 0:
+                self.seed_game.setCurrentIndex(idx)
+
+    def _on_seed_category(self):
+        if self._db_path is None or self._seed_thread is not None:
+            return
+        game_id = self.seed_game.currentData()
+        game = next((g for g in self._games if g.id == game_id), None)
+        if game is None:
+            return
+        category = self.seed_category.text().strip()
+        if not category:
+            return
+        api_url = api_url_for(game.wiki_url)
+        if not api_url:
+            self.seed_status.setText("This game has no wiki URL — add one first.")
+            return
+        self.seed_btn.setEnabled(False)
+        self.seed_progress.setVisible(True)
+        self.seed_progress.setRange(0, 0)   # indeterminate until first progress
+        self.seed_status.setText("Seeding…")
+        self.seed_status.setToolTip("")
+        self._seed_thread = QThread(self)
+        self._seed_worker = CategorySeedWorker(
+            str(self._db_path), game.id, api_url, game.wiki_url, category)
+        self._seed_worker.moveToThread(self._seed_thread)
+        self._seed_thread.started.connect(self._seed_worker.run)
+        self._seed_worker.progress.connect(self._on_seed_progress)
+        self._seed_worker.finished.connect(self._on_seed_done)
+        self._seed_worker.error.connect(self._on_seed_error)
+        self._seed_thread.start()
+
+    def _on_seed_progress(self, done, total):
+        if total > 0:
+            self.seed_progress.setRange(0, total)
+            self.seed_progress.setValue(done)
+            self.seed_status.setText(f"{done:,}/{total:,}")
+
+    def _on_seed_done(self, count):
+        self._teardown_seed()
+        if count:
+            self.seed_status.setText(f"Added {count:,} guides.")
+        else:
+            self.seed_status.setText("No new guides found.")
+        self._refresh_guides_status()
+
+    def _on_seed_error(self, message):
+        self._teardown_seed()
+        detail = (message or "unknown error").strip().splitlines()[0]
+        if len(detail) > 160:
+            detail = detail[:157] + "…"
+        self.seed_status.setText(f"Seed failed: {detail}")
+        self.seed_status.setToolTip(message or "")
+
+    def _teardown_seed(self):
+        self.seed_progress.setVisible(False)
+        self.seed_btn.setEnabled(True)
+        if self._seed_thread is not None:
+            self._seed_thread.quit()
+            self._seed_thread.wait(5000)
+        self._seed_thread = None
+        self._seed_worker = None
 
     def _build_footer(self) -> QWidget:
         footer = QWidget()
@@ -910,6 +1011,7 @@ class OverlayWindow(QWidget):
     def set_games(self, games):
         self._games = list(games)
         self._rebuild_game_menu()
+        self._refresh_seed_games()
 
     def _active_game_id(self):
         if self.active_game is not None:
@@ -1026,6 +1128,8 @@ class OverlayWindow(QWidget):
         if self._fetch_worker is not None:
             self._chat_cancelled = True
             self._fetch_worker.cancel()
+        if self._seed_worker is not None:
+            self._seed_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
@@ -1039,9 +1143,12 @@ class OverlayWindow(QWidget):
             self._ingest_worker.cancel()
         if self._fetch_worker is not None:
             self._fetch_worker.cancel()
+        if self._seed_worker is not None:
+            self._seed_worker.cancel()
         self._teardown_chat_thread()
         self._teardown_fetch_thread()
         self._teardown_ingest()
+        self._teardown_seed()
 
     def _demote_foreground_game(self):
         if sys.platform != "win32":

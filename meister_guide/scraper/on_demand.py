@@ -3,11 +3,7 @@ fetch the top pages, and ingest them scoped to the game so they're offline next
 time. Pure (no Qt) so it stays unit-testable; OnDemandFetchWorker wraps it for
 threading."""
 from meister_guide.ai.ranking import is_noise
-
-
-def _page_url(base, title):
-    """Best-effort display URL for a fetched page. Stored url is display-only."""
-    return (base or "").rstrip("/") + "/wiki/" + title.replace(" ", "_")
+from meister_guide.scraper.urls import page_url
 
 
 def run_on_demand_fetch(client, articles_repo, game_id, query, limit=3, base="",
@@ -28,6 +24,6 @@ def run_on_demand_fetch(client, articles_repo, game_id, query, limit=3, base="",
         if is_noise(a.title):
             continue
         if articles_repo.add_article(a.pageid, a.title, a.text, a.revid,
-                                     _page_url(base, a.title), game_id=game_id):
+                                     page_url(base, a.title), game_id=game_id):
             n += 1
     return n
