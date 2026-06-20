@@ -11,7 +11,7 @@ from meister_guide.scraper.ingest import run_ingest
 from meister_guide.scraper.redirect_ingest import run_redirect_ingest
 from meister_guide.scraper.on_demand import run_on_demand_fetch
 from meister_guide.scraper.seed import run_category_seed
-from meister_guide.scraper.web_search import BraveSearchClient
+from meister_guide.scraper.web_search import make_search_client
 from meister_guide.scraper.web_fetch import fetch_main_text
 from meister_guide.scraper.web_ingest import run_web_fetch
 from meister_guide.ai.ranking import is_noise
@@ -162,8 +162,9 @@ class CategorySeedWorker(QObject):
 
 class WebFetchWorker(QObject):
     """Runs a single web-search fallback off the UI thread. Opens its OWN SQLite
-    connection inside run() and builds a BraveSearchClient from the api_key (or
-    uses an injected client/fetch_fn for tests)."""
+    connection inside run() and builds a search client via make_search_client
+    from the api_key (Brave if a key is set, else free DuckDuckGo) — or uses an
+    injected client/fetch_fn for tests."""
     finished = Signal(int)   # number of articles ingested
     error = Signal(str)
 
@@ -188,7 +189,7 @@ class WebFetchWorker(QObject):
         try:
             conn = connect(self._db_path)
             init_db(conn)
-            client = self._client or BraveSearchClient(self._api_key)
+            client = self._client or make_search_client(self._api_key)
             fetch_fn = self._fetch_fn or fetch_main_text
             n = run_web_fetch(client, fetch_fn, ArticlesRepo(conn),
                               self._game_id, self._query, limit=self._limit,

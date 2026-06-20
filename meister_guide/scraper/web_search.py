@@ -34,3 +34,37 @@ class BraveSearchClient:
             if url:
                 out.append((r.get("title") or url, url))
         return out
+
+
+class DuckDuckGoSearchClient:
+    """Keyless web search via the `ddgs` library (DuckDuckGo). Pure: the search
+    call is injectable so tests run without ddgs or a network. Same (title, url)
+    interface as BraveSearchClient, so it's a drop-in for run_web_fetch.
+
+    Caveat: ddgs scrapes an unofficial endpoint and can rate-limit or break;
+    Brave (keyed) is the reliable upgrade."""
+    def __init__(self, search_fn=None):
+        self._search_fn = search_fn or self._default_search
+
+    def _default_search(self, query, count):
+        from ddgs import DDGS
+        return DDGS().text(query, max_results=count)
+
+    def search(self, query, count=3):
+        """Return up to `count` (title, url) pairs for `query`. Raises on a
+        library/network error (the worker catches it)."""
+        results = self._search_fn(query, count) or []
+        out = []
+        for r in results[:count]:
+            url = r.get("href")
+            if url:
+                out.append((r.get("title") or url, url))
+        return out
+
+
+def make_search_client(brave_api_key):
+    """Pick the web-search provider: Brave when a key is set (more reliable),
+    else the free keyless DuckDuckGo client."""
+    if brave_api_key:
+        return BraveSearchClient(brave_api_key)
+    return DuckDuckGoSearchClient()

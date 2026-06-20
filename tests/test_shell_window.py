@@ -79,9 +79,18 @@ def test_tab_order_and_default(tmp_path):
 def test_footer_copy_adapts_to_backend(tmp_path):
     w, repo = _window(tmp_path)
     repo.set("chat_backend", BACKEND_OLLAMA)
+    repo.set("web_fallback", "0")          # local chat AND web paused -> offline
     w._refresh_footer()
-    assert "no cloud" in w.footer_note.text().lower()
+    assert "offline mode" in w.footer_note.text().lower()
     repo.set("chat_backend", BACKEND_AUTO)
     repo.set("claude_api_key", "sk-x")
     w._refresh_footer()
-    assert "online" in w.footer_note.text().lower()
+    assert "web-augmented" in w.footer_note.text().lower()
+
+
+def test_footer_web_augmented_when_only_web_fallback_on(tmp_path):
+    w, repo = _window(tmp_path)
+    repo.set("chat_backend", BACKEND_OLLAMA)   # local chat backend
+    repo.set("web_fallback", "1")              # but web fallback on (default)
+    w._refresh_footer()
+    assert "web-augmented" in w.footer_note.text().lower()

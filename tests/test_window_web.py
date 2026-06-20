@@ -60,7 +60,8 @@ def test_miss_with_web_enabled_starts_web_fetch(tmp_path):
 
 
 def test_miss_with_web_disabled_answers_anyway(tmp_path):
-    w, repo = _window(tmp_path)   # no key -> web disabled
+    w, repo = _window(tmp_path)   # user explicitly pauses web fallback
+    repo.set("web_fallback", "0")
     w._retrieve = lambda q: ([], [])
     answered, web = [], []
     w._answer_now = lambda *a, **k: answered.append(a)
@@ -122,3 +123,10 @@ def test_settings_persists_brave_key_and_toggle(tmp_path):
     w._on_save_settings()
     assert repo.brave_api_key() == "brv-xyz"
     assert repo.get("web_fallback") == "0"
+
+
+def test_web_enabled_by_default_without_key(tmp_path):
+    w, repo = _window(tmp_path)            # no Brave key
+    assert w._web_enabled() is True        # free DuckDuckGo, on by default
+    repo.set("web_fallback", "0")
+    assert w._web_enabled() is False
