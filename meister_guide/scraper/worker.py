@@ -162,8 +162,9 @@ class CategorySeedWorker(QObject):
 
 class WebFetchWorker(QObject):
     """Runs a single web-search fallback off the UI thread. Opens its OWN SQLite
-    connection inside run() and builds a BraveSearchClient from the api_key (or
-    uses an injected client/fetch_fn for tests)."""
+    connection inside run() and builds a search client via make_search_client
+    from the api_key (Brave if a key is set, else free DuckDuckGo) — or uses an
+    injected client/fetch_fn for tests."""
     finished = Signal(int)   # number of articles ingested
     error = Signal(str)
 
