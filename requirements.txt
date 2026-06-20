@@ -2,5 +2,6 @@ PySide6==6.7.2
 psutil==6.0.0
 requests==2.32.3
 beautifulsoup4==4.12.3
+trafilatura>=1.8  # web-fallback (SP2b) HTML main-text extraction; lazy-imported
 anthropic>=0.40  # optional: only used when the Claude chat backend is selected (lazy-imported)
 pytest==8.2.2
