@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QSettings, QPoint, QRect, QThread
 from PySide6.QtGui import QPainter, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QTabWidget, QComboBox,
+    QTabWidget, QComboBox, QCheckBox,
     QLineEdit, QListWidget, QListWidgetItem, QTextBrowser, QProgressBar, QSplitter,
 )
 
@@ -29,7 +29,7 @@ from meister_guide.overlay.win32_topmost import (
     set_window_topmost,
 )
 from meister_guide.scraper.worker import (
-    IngestWorker, OnDemandFetchWorker, CategorySeedWorker,
+    IngestWorker, OnDemandFetchWorker, CategorySeedWorker, WebFetchWorker,
 )
 from meister_guide.db.games import api_url_for
 from meister_guide.guides_status import guides_status_text
@@ -94,6 +94,8 @@ class OverlayWindow(QWidget):
         self._fetch_worker = None
         self._seed_thread = None
         self._seed_worker = None
+        self._web_thread = None
+        self._web_worker = None
         self._last_progress_done = None  # to detect a stalled (catching-up) count
         self._chat_repo = chat_repo
         self._ollama = ollama_client
@@ -363,7 +365,7 @@ class OverlayWindow(QWidget):
     def _on_send(self):
         # A fetch thread blocks re-entry just like the chat thread does.
         if (not self.chat_input.isEnabled() or self._chat_thread is not None
-                or self._fetch_thread is not None):
+                or self._fetch_thread is not None or self._web_thread is not None):
             return
         question = self.chat_input.text().strip()
         if not question:
@@ -384,12 +386,9 @@ class OverlayWindow(QWidget):
             self._start_fetch(question, history, wiki)
             return
 
-        # Hit path (and not-fetchable): answer from the local corpus now.
-        sources, passages = self._retrieve(question)
-        self._begin_exchange(question, sources)
-        self._pending_messages = build_messages(question, passages, history)
-        self._attempt = 0
-        self._start_chat_worker()
+        # Hit path, or a miss we can't fetch from a wiki: answer now, or fall
+        # back to a web search first if it's enabled.
+        self._answer_or_web_fallback(question, history, reuse_turn=False)
 
     def _retrieve(self, question):
         """Game-scoped ranked retrieval -> (sources, passages) for the prompt.
@@ -447,15 +446,10 @@ class OverlayWindow(QWidget):
             self.chat_send_btn.setEnabled(True)
             self.chat_status.setText("")
             return
-        sources, passages = self._retrieve(question)
-        # Reuse the existing placeholder assistant turn for streaming; just
-        # attach the sources the fetch produced.
-        if self._chat_view and self._chat_view[-1]["role"] == "assistant":
-            self._chat_view[-1]["sources"] = sources
-        self._render_chat()
-        self._pending_messages = build_messages(question, passages, history)
-        self._attempt = 0
-        self._start_chat_worker()
+        # The wiki fetch is done. If it produced hits we answer; if it's still
+        # empty and web fallback is on, escalate to a web search (reusing the
+        # placeholder assistant turn already on screen).
+        self._answer_or_web_fallback(question, history, reuse_turn=True)
 
     def _teardown_fetch_thread(self):
         if self._fetch_thread is not None:
@@ -463,6 +457,74 @@ class OverlayWindow(QWidget):
             self._fetch_thread.wait(5000)
         self._fetch_thread = None
         self._fetch_worker = None
+
+    def _web_enabled(self):
+        return (self._db_path is not None and self._settings_repo is not None
+                and self._settings_repo.web_fallback_enabled())
+
+    def _answer_now(self, question, history, sources, passages, reuse_turn):
+        """Start the chat stream for `question`. reuse_turn=True keeps the
+        on-screen placeholder assistant turn (post-fetch); False opens a new
+        exchange (direct hit path)."""
+        if reuse_turn:
+            if self._chat_view and self._chat_view[-1]["role"] == "assistant":
+                self._chat_view[-1]["sources"] = sources
+            self._render_chat()
+        else:
+            self._begin_exchange(question, sources)
+        self._pending_messages = build_messages(question, passages, history)
+        self._attempt = 0
+        self._start_chat_worker()
+
+    def _answer_or_web_fallback(self, question, history, reuse_turn):
+        """Retrieve and answer; if there's nothing and web fallback is enabled,
+        run a web search first (then answer in _on_web_fetch_done)."""
+        sources, passages = self._retrieve(question)
+        if sources or not self._web_enabled():
+            self._answer_now(question, history, sources, passages, reuse_turn)
+        else:
+            self._start_web_fetch(question, history, reuse_turn)
+
+    def _start_web_fetch(self, question, history, reuse_turn):
+        """Last-resort miss path: search the web, scrape+ingest off-thread, then
+        answer from what was fetched (in _on_web_fetch_done). reuse_turn keeps an
+        existing placeholder turn (post-wiki-fetch) instead of opening a new one."""
+        if not reuse_turn:
+            self._begin_exchange(question, [])
+        self.chat_status.setText("Searching the web…")
+        self.chat_input.setEnabled(False)
+        self.chat_send_btn.setEnabled(False)
+        # _web_enabled() (checked by the caller) guarantees _settings_repo is set.
+        self._web_thread = QThread(self)
+        self._web_worker = WebFetchWorker(
+            str(self._db_path), self._active_game_id(), question,
+            self._settings_repo.brave_api_key())
+        self._web_worker.moveToThread(self._web_thread)
+        self._web_thread.started.connect(self._web_worker.run)
+        self._web_worker.finished.connect(
+            lambda _n: self._on_web_fetch_done(question, history))
+        self._web_worker.error.connect(
+            lambda _m: self._on_web_fetch_done(question, history))
+        self._web_thread.start()
+
+    def _on_web_fetch_done(self, question, history):
+        self._teardown_web_thread()
+        if self._chat_cancelled:
+            # Overlay was hidden mid-fetch: restore input and don't start a chat.
+            self.chat_input.setEnabled(True)
+            self.chat_send_btn.setEnabled(True)
+            self.chat_status.setText("")
+            return
+        sources, passages = self._retrieve(question)
+        # Post-web-fetch always reuses the on-screen placeholder assistant turn.
+        self._answer_now(question, history, sources, passages, reuse_turn=True)
+
+    def _teardown_web_thread(self):
+        if self._web_thread is not None:
+            self._web_thread.quit()
+            self._web_thread.wait(5000)
+        self._web_thread = None
+        self._web_worker = None
 
     def _start_chat_worker(self):
         """Run self._pending_messages on the current backend attempt. Factored
@@ -736,6 +798,17 @@ class OverlayWindow(QWidget):
                 self.set_model.setCurrentIndex(idx)
             col.addWidget(self.set_model)
 
+            col.addWidget(QLabel("Brave Search API key (web fallback)"))
+            self.set_brave_key = QLineEdit(self._settings_repo.brave_api_key())
+            self.set_brave_key.setEchoMode(QLineEdit.Password)
+            self.set_brave_key.setPlaceholderText(
+                "brv-…  (enables web search when the wiki can't answer)")
+            col.addWidget(self.set_brave_key)
+            self.set_web_fallback = QCheckBox("Allow web search fallback")
+            self.set_web_fallback.setChecked(
+                self._settings_repo.get("web_fallback") != "0")
+            col.addWidget(self.set_web_fallback)
+
             save = QPushButton("Save backend settings")
             save.clicked.connect(self._on_save_settings)
             col.addWidget(save)
@@ -802,6 +875,9 @@ class OverlayWindow(QWidget):
         self._settings_repo.set("chat_backend", self.set_backend.currentData())
         self._settings_repo.set("claude_api_key", self.set_api_key.text().strip())
         self._settings_repo.set("claude_model", self.set_model.currentData())
+        self._settings_repo.set("brave_api_key", self.set_brave_key.text().strip())
+        self._settings_repo.set("web_fallback",
+                                "1" if self.set_web_fallback.isChecked() else "0")
         self._refresh_chat_backend()
         self.set_status.setText("Saved. " + (self.chat_status.text() or ""))
 
@@ -1130,6 +1206,9 @@ class OverlayWindow(QWidget):
             self._fetch_worker.cancel()
         if self._seed_worker is not None:
             self._seed_worker.cancel()
+        if self._web_worker is not None:
+            self._chat_cancelled = True
+            self._web_worker.cancel()
         self._restore_demoted_game()
         super().hideEvent(event)
 
@@ -1145,10 +1224,13 @@ class OverlayWindow(QWidget):
             self._fetch_worker.cancel()
         if self._seed_worker is not None:
             self._seed_worker.cancel()
+        if self._web_worker is not None:
+            self._web_worker.cancel()
         self._teardown_chat_thread()
         self._teardown_fetch_thread()
         self._teardown_ingest()
         self._teardown_seed()
+        self._teardown_web_thread()
 
     def _demote_foreground_game(self):
         if sys.platform != "win32":
