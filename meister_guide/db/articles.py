@@ -107,6 +107,26 @@ class ArticlesRepo:
         self._conn.commit()
         return pruned
 
+    def delete_by_game(self, game_id) -> int:
+        """Delete all articles for one game plus their contentless-FTS rows;
+        return the number deleted. Contentless FTS5 needs the original column
+        values supplied to delete an index row, so the body is decompressed and
+        passed to the 'delete' command (same pattern as prune_noise)."""
+        rows = self._conn.execute(
+            "SELECT id, title, body_zlib FROM articles WHERE game_id = ?",
+            (game_id,),
+        ).fetchall()
+        for id_, title, body_zlib in rows:
+            body = zlib.decompress(body_zlib).decode("utf-8")
+            self._conn.execute(
+                "INSERT INTO articles_fts(articles_fts, rowid, title, body) "
+                "VALUES('delete', ?, ?, ?)",
+                (id_, title, body),
+            )
+            self._conn.execute("DELETE FROM articles WHERE id = ?", (id_,))
+        self._conn.commit()
+        return len(rows)
+
     def search(self, query, limit=50):
         fts_query = self._to_fts_query(query)
         if not fts_query:
