@@ -60,7 +60,8 @@ def test_miss_with_web_enabled_starts_web_fetch(tmp_path):
 
 
 def test_miss_with_web_disabled_answers_anyway(tmp_path):
-    w, repo = _window(tmp_path)   # no key -> web disabled
+    w, repo = _window(tmp_path)   # user explicitly pauses web fallback
+    repo.set("web_fallback", "0")
     w._retrieve = lambda q: ([], [])
     answered, web = [], []
     w._answer_now = lambda *a, **k: answered.append(a)

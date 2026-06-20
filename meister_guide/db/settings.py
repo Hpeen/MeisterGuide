@@ -55,6 +55,7 @@ class SettingsRepo:
         return self.get("brave_api_key")
 
     def web_fallback_enabled(self):
-        """Web fallback is on when a Brave key is set and the pref isn't paused.
-        Defaults on once a key exists; the Settings checkbox writes '1'/'0'."""
-        return bool(self.brave_api_key()) and self.get("web_fallback") != "0"
+        """Web fallback is on unless the user paused it (default on). No key is
+        required — make_search_client picks the provider: Brave if a key is set,
+        otherwise the free keyless DuckDuckGo client."""
+        return self.get("web_fallback") != "0"
