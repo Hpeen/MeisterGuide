@@ -871,6 +871,7 @@ class OverlayWindow(QWidget):
         self.seed_progress.setVisible(True)
         self.seed_progress.setRange(0, 0)   # indeterminate until first progress
         self.seed_status.setText("Seeding…")
+        self.seed_status.setToolTip("")
         self._seed_thread = QThread(self)
         self._seed_worker = CategorySeedWorker(
             str(self._db_path), game.id, api_url, game.wiki_url, category)
@@ -889,7 +890,10 @@ class OverlayWindow(QWidget):
 
     def _on_seed_done(self, count):
         self._teardown_seed()
-        self.seed_status.setText(f"Added {count:,} guides.")
+        if count:
+            self.seed_status.setText(f"Added {count:,} guides.")
+        else:
+            self.seed_status.setText("No new guides found.")
         self._refresh_guides_status()
 
     def _on_seed_error(self, message):

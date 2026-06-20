@@ -70,6 +70,12 @@ def test_seed_done_handler_reports_count_and_resets(tmp_path):
     assert not w.seed_progress.isVisible()
 
 
+def test_seed_done_zero_count_shows_no_guides_message(tmp_path):
+    w, nowiki, withwiki = _window(tmp_path)
+    w._on_seed_done(0)
+    assert "No new guides" in w.seed_status.text()
+
+
 def test_seed_error_handler_shows_truncated_error(tmp_path):
     w, nowiki, withwiki = _window(tmp_path)
     w._on_seed_error("Boom happened\nsecond line")
