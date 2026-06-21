@@ -39,13 +39,15 @@ def _normalize_category(name):
 
 class WikiClient:
     def __init__(self, api_url=DEFAULT_API, http_get=None, delay=0.0,
-                 sleep=time.sleep, max_retries=5, backoff=1.0):
+                 sleep=time.sleep, max_retries=5, backoff=1.0, extract=None):
         self._api = api_url
         self._http_get = http_get or self._default_get
         self._delay = delay
         self._sleep = sleep
         self._max_retries = max_retries
         self._backoff = backoff
+        self._extract = extract or self._default_extract
+        self._has_extracts = None      # cached TextExtracts capability
 
     def _default_get(self, params):
         import requests
@@ -53,6 +55,33 @@ class WikiClient:
                             headers={"User-Agent": USER_AGENT}, timeout=30)
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    def _default_extract(html):
+        """Plain text from rendered wiki HTML. Lazy-imports trafilatura (already a
+        dependency) so importing this module never requires it."""
+        import trafilatura
+        return trafilatura.extract(html, include_comments=False,
+                                   include_tables=True) or ""
+
+    def has_textextracts(self):
+        """True if the wiki has the TextExtracts extension (cached, one siteinfo
+        call). On a detection failure, returns False so we use the parse path."""
+        if self._has_extracts is None:
+            try:
+                data = self._fetch({
+                    "action": "query", "format": "json",
+                    "meta": "siteinfo", "siprop": "extensions", "maxlag": 5,
+                })
+                exts = data.get("query", {}).get("extensions", [])
+                self._has_extracts = any(e.get("name") == "TextExtracts"
+                                         for e in exts)
+            except Exception:
+                # Treat as absent (use the parse path); cached for this client's
+                # lifetime — a fresh WikiClient is built per download, so the next
+                # run re-detects.
+                self._has_extracts = False
+        return self._has_extracts
 
     def _params(self, continue_token):
         # gaplimit is aligned to the realistic extract yield: full-text extracts
@@ -126,9 +155,13 @@ class WikiClient:
         return [r["title"] for r in results if "title" in r]
 
     def fetch_by_titles(self, titles):
-        """Fetch plain-text extracts for specific titles (prop=extracts) in one request. Reuses _articles_from to build WikiArticles."""
+        """Fetch plain-text articles for specific titles. Uses prop=extracts when
+        available, else action=parse + trafilatura per title."""
         if not titles:
             return []
+        if not self.has_textextracts():
+            return [a for a in (self._parse_page(t) for t in titles)
+                    if a is not None]
         data = self._fetch({
             "action": "query", "format": "json",
             "titles": "|".join(titles),
@@ -136,6 +169,27 @@ class WikiClient:
             "maxlag": 5,
         })
         return self._articles_from(data)
+
+    def _parse_page(self, title):
+        """Fetch one page via action=parse, extract plain text with self._extract,
+        return a WikiArticle (or None if missing/empty). Per-page failures return
+        None so one bad page never aborts a bulk walk; systemic failures still
+        surface from the enumeration request in _iter_batches_parse."""
+        try:
+            data = self._fetch({
+                "action": "parse", "format": "json", "page": title,
+                "prop": "text", "formatversion": 2, "redirects": 1, "maxlag": 5,
+            })
+        except Exception:
+            return None
+        parse = data.get("parse")
+        if not parse:
+            return None
+        text = (self._extract(parse.get("text") or "") or "").strip()
+        if not text:
+            return None
+        return WikiArticle(parse.get("pageid"), parse.get("title", title),
+                           text, parse.get("revid"))
 
     def _redirect_params(self, continue_token):
         # Enumerate redirect pages in the article namespace. aplimit is held at
@@ -240,11 +294,44 @@ class WikiClient:
         return titles
 
     def iter_batches(self, start_token=None):
-        """Yield (list[WikiArticle], next_token|None) per API batch."""
+        """Yield (list[WikiArticle], next_token|None) per batch. Uses the light
+        extracts path when the wiki has TextExtracts, else action=parse +
+        trafilatura."""
+        if self.has_textextracts():
+            yield from self._iter_batches_extracts(start_token)
+        else:
+            yield from self._iter_batches_parse(start_token)
+
+    def _iter_batches_extracts(self, start_token=None):
         token = start_token
         while True:
             data = self._fetch(self._params(token))
             articles = self._articles_from(data)
+            cont = data.get("continue")
+            next_token = json.dumps(cont) if cont else None
+            yield articles, next_token
+            if next_token is None:
+                return
+            token = next_token
+            self._sleep(self._delay)
+
+    def _iter_batches_parse(self, start_token=None):
+        token = start_token
+        while True:
+            params = {
+                "action": "query", "format": "json", "list": "allpages",
+                # aplimit kept at 50: each title is a separate action=parse fetch,
+                # so a small enumeration page keeps per-batch commits frequent
+                # (mirrors the redirect walker).
+                "apnamespace": 0, "aplimit": 50, "maxlag": 5,
+            }
+            if token:
+                params.update(json.loads(token))
+            data = self._fetch(params)
+            titles = [p["title"] for p in data.get("query", {}).get("allpages", [])
+                      if "title" in p]
+            articles = [a for a in (self._parse_page(t) for t in titles)
+                        if a is not None]
             cont = data.get("continue")
             next_token = json.dumps(cont) if cont else None
             yield articles, next_token
