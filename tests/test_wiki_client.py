@@ -255,3 +255,39 @@ def test_fetch_by_titles_empty_input_makes_no_request():
     client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
     assert client.fetch_by_titles([]) == []
     assert calls == []
+
+
+def _siteinfo(extensions):
+    return {"query": {"extensions": [{"name": n} for n in extensions]}}
+
+
+def test_has_textextracts_true_when_extension_present():
+    def get(params):
+        assert params["meta"] == "siteinfo" and params["siprop"] == "extensions"
+        return _siteinfo(["TextExtracts", "CirrusSearch"])
+    client = WikiClient(http_get=get, delay=0, sleep=lambda s: None)
+    assert client.has_textextracts() is True
+
+
+def test_has_textextracts_false_when_absent():
+    client = WikiClient(http_get=lambda p: _siteinfo(["CirrusSearch"]),
+                        delay=0, sleep=lambda s: None)
+    assert client.has_textextracts() is False
+
+
+def test_has_textextracts_is_cached():
+    calls = {"n": 0}
+    def get(params):
+        calls["n"] += 1
+        return _siteinfo(["TextExtracts"])
+    client = WikiClient(http_get=get, delay=0, sleep=lambda s: None)
+    assert client.has_textextracts() is True
+    assert client.has_textextracts() is True
+    assert calls["n"] == 1
+
+
+def test_has_textextracts_false_on_detection_failure():
+    def boom(params):
+        raise RuntimeError("network down")
+    client = WikiClient(http_get=boom, delay=0, sleep=lambda s: None, max_retries=2)
+    assert client.has_textextracts() is False

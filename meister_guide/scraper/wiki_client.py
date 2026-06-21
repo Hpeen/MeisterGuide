@@ -39,13 +39,15 @@ def _normalize_category(name):
 
 class WikiClient:
     def __init__(self, api_url=DEFAULT_API, http_get=None, delay=0.0,
-                 sleep=time.sleep, max_retries=5, backoff=1.0):
+                 sleep=time.sleep, max_retries=5, backoff=1.0, extract=None):
         self._api = api_url
         self._http_get = http_get or self._default_get
         self._delay = delay
         self._sleep = sleep
         self._max_retries = max_retries
         self._backoff = backoff
+        self._extract = extract or self._default_extract
+        self._has_extracts = None      # cached TextExtracts capability
 
     def _default_get(self, params):
         import requests
@@ -53,6 +55,30 @@ class WikiClient:
                             headers={"User-Agent": USER_AGENT}, timeout=30)
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    def _default_extract(html):
+        """Plain text from rendered wiki HTML. Lazy-imports trafilatura (already a
+        dependency) so importing this module never requires it."""
+        import trafilatura
+        return trafilatura.extract(html, include_comments=False,
+                                   include_tables=True) or ""
+
+    def has_textextracts(self):
+        """True if the wiki has the TextExtracts extension (cached, one siteinfo
+        call). On a detection failure, returns False so we use the parse path."""
+        if self._has_extracts is None:
+            try:
+                data = self._fetch({
+                    "action": "query", "format": "json",
+                    "meta": "siteinfo", "siprop": "extensions", "maxlag": 5,
+                })
+                exts = data.get("query", {}).get("extensions", [])
+                self._has_extracts = any(e.get("name") == "TextExtracts"
+                                         for e in exts)
+            except Exception:
+                self._has_extracts = False
+        return self._has_extracts
 
     def _params(self, continue_token):
         # gaplimit is aligned to the realistic extract yield: full-text extracts
