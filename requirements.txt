@@ -3,6 +3,7 @@ psutil==6.0.0
 requests==2.32.3
 beautifulsoup4==4.12.3
 trafilatura>=1.8  # web-fallback (SP2b) HTML main-text extraction; lazy-imported
+lxml_html_clean  # required by trafilatura>=2 (justext) since lxml.html.clean was split out
 ddgs>=6.0  # web-fallback free keyless DuckDuckGo search; lazy-imported
 anthropic>=0.40  # optional: only used when the Claude chat backend is selected (lazy-imported)
 pytest==8.2.2

@@ -7,7 +7,9 @@ from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
 
-_DEFAULT_ASSETS = Path(__file__).resolve().parents[2] / "assets" / "fonts"
+from meister_guide.resources import resource_path
+
+_DEFAULT_ASSETS = resource_path("assets/fonts")
 
 # role -> (filename, fallback family)
 _FONTS = {

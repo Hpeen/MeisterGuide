@@ -9,7 +9,9 @@ from meister_guide.theme.stylesheet import build_stylesheet
 from meister_guide.theme.fonts import load_fonts
 from meister_guide.overlay.window import OverlayWindow
 from meister_guide.input.hotkey import GlobalHotkey
-from meister_guide.db.database import default_db_path, connect, init_db, migrate_game_ids
+from meister_guide.db.database import (default_db_path, connect, init_db,
+                                       migrate_game_ids, seed_db_if_missing)
+from meister_guide.resources import resource_path
 from meister_guide.db.games import GamesRepo
 from meister_guide.db.articles import ArticlesRepo, ScrapeStateRepo
 from meister_guide.db.chat import ChatRepo
@@ -44,6 +46,14 @@ def main() -> int:
 
     settings = QSettings(ORG, APP)
 
+    # First run: drop in a bundled seed corpus if one was added to the build and
+    # the user has no DB yet. The default build ships none, so this is normally a
+    # no-op. On failure (e.g. permissions) start with an empty corpus rather than
+    # refusing to launch — on-demand/web fetch still answer at runtime.
+    try:
+        seed_db_if_missing(default_db_path(), resource_path("seed/meister.db"))
+    except OSError:
+        pass
     conn = connect(default_db_path())
     init_db(conn)
     games_repo = GamesRepo(conn)

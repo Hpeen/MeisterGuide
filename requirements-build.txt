@@ -1,0 +1,3 @@
+# Build-only dependencies (not needed to run from source).
+pyinstaller>=6.0
+pillow>=10.0   # used by tools/make_icon.py to render assets/icon.ico
