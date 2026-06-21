@@ -1108,17 +1108,15 @@ class OverlayWindow(QWidget):
             game is not None and game.name != "Minecraft")
 
     def _clear_game_guides(self, game):
-        """Delete a game's stored articles + redirect aliases; reset the
-        single-row scrape/redirect state when it's Minecraft (the only game that
-        uses them). Returns the number of articles deleted."""
+        """Delete a game's stored articles + redirect aliases and reset its
+        per-game scrape/redirect resume state. Returns the article count deleted."""
         n = self._articles_repo.delete_by_game(game.id) if self._articles_repo else 0
         if self._redirects_repo is not None:
             self._redirects_repo.delete_by_game(game.id)
-        if game.name == "Minecraft":
-            if self._scrape_state_repo is not None:
-                self._scrape_state_repo.save(ScrapeState(None, 0, None))
-            if self._redirect_state_repo is not None:
-                self._redirect_state_repo.save(RedirectState(None, 0))
+        if self._scrape_state_repo is not None:
+            self._scrape_state_repo.save(ScrapeState(None, 0, None), game.id)
+        if self._redirect_state_repo is not None:
+            self._redirect_state_repo.save(RedirectState(None, 0), game.id)
         return n
 
     def _on_clear_guides(self):
@@ -1220,18 +1218,16 @@ class OverlayWindow(QWidget):
             self.guides_status.setText("")
             return
         game = self._guides_target_game()
-        n = self._articles_repo.count(game_id=(game.id if game is not None else None))
+        gid = game.id if game is not None else None
+        n = self._articles_repo.count(game_id=gid)
         articles_done = True
         redirects_done = True
-        # The resume-token state tracks Minecraft's full-wiki walk, so it only
-        # describes Minecraft; other games just show their stored count.
-        if game is not None and game.name == "Minecraft":
-            if self._scrape_state_repo is not None:
-                articles_done = (self._scrape_state_repo.load().continue_token is None
-                                 and n > 0)
-            if self._redirect_state_repo is not None:
-                rs = self._redirect_state_repo.load()
-                redirects_done = rs.continue_token is None and rs.done > 0
+        if gid is not None and self._scrape_state_repo is not None:
+            articles_done = (self._scrape_state_repo.load(gid).continue_token is None
+                             and n > 0)
+        if gid is not None and self._redirect_state_repo is not None:
+            rs = self._redirect_state_repo.load(gid)
+            redirects_done = rs.continue_token is None and rs.done > 0
         self.guides_status.setText(
             guides_status_text(n, articles_done, redirects_done)
         )

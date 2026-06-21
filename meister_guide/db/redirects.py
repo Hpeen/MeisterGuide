@@ -67,29 +67,30 @@ class RedirectState:
 
 
 class RedirectStateRepo:
-    """Single-row (id=1) redirect-walk progress, so an interrupted walk resumes.
-    No `total` field: the redirect count isn't exposed as a cheap statistic the
-    way the article count is, so progress is reported as a running count only."""
+    """Per-game redirect-walk progress (keyed by game_id) so an interrupted walk
+    resumes. No `total`: the redirect count isn't a cheap statistic, so progress
+    is a running count only."""
 
     def __init__(self, conn):
         self._conn = conn
 
-    def load(self) -> RedirectState:
+    def load(self, game_id) -> RedirectState:
         row = self._conn.execute(
-            "SELECT continue_token, done FROM redirect_state WHERE id = 1"
+            "SELECT continue_token, done FROM redirect_state WHERE game_id = ?",
+            (game_id,),
         ).fetchone()
         if row is None:
             return RedirectState(None, 0)
         return RedirectState(row[0], row[1])
 
-    def save(self, state: RedirectState, commit=True) -> None:
+    def save(self, state: RedirectState, game_id, commit=True) -> None:
         self._conn.execute(
-            "INSERT INTO redirect_state (id, continue_token, done, updated_at) "
-            "VALUES (1, ?, ?, CURRENT_TIMESTAMP) "
-            "ON CONFLICT(id) DO UPDATE SET "
+            "INSERT INTO redirect_state (game_id, continue_token, done, updated_at) "
+            "VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(game_id) DO UPDATE SET "
             "continue_token=excluded.continue_token, done=excluded.done, "
             "updated_at=CURRENT_TIMESTAMP",
-            (state.continue_token, state.done),
+            (game_id, state.continue_token, state.done),
         )
         if commit:
             self._conn.commit()

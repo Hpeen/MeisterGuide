@@ -19,6 +19,8 @@ class FakeRedirectClient:
 def _setup(tmp_path):
     conn = connect(tmp_path / "ri.db")
     init_db(conn)
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'T','[]')")
+    conn.commit()
     return conn, ArticlesRepo(conn), RedirectsRepo(conn), RedirectStateRepo(conn)
 
 
@@ -32,17 +34,17 @@ def test_stores_aliases_only_for_known_target_articles(tmp_path):
     ], None)]
     seen = []
     run_redirect_ingest(FakeRedirectClient(batches), reds, arts, state, conn,
-                        progress_cb=lambda d: seen.append(d))
+                        progress_cb=lambda d: seen.append(d), game_id=1)
     assert reds.count() == 2
     assert seen[-1] == 2
-    assert state.load().continue_token is None
+    assert state.load(1).continue_token is None
 
 
 def test_resumes_from_saved_token(tmp_path):
     conn, arts, reds, state = _setup(tmp_path)
-    state.save(RedirectState(continue_token="tok1", done=5))
+    state.save(RedirectState(continue_token="tok1", done=5), 1)
     client = FakeRedirectClient([([], None)])
-    run_redirect_ingest(client, reds, arts, state, conn)
+    run_redirect_ingest(client, reds, arts, state, conn, game_id=1)
     assert client.started_with == "tok1"
 
 
@@ -54,7 +56,7 @@ def test_stops_when_cancelled(tmp_path):
         ([("Doggo", "Wolf (mob)")], None),
     ]
     run_redirect_ingest(FakeRedirectClient(batches), reds, arts, state, conn,
-                        should_cancel=lambda: True)
+                        should_cancel=lambda: True, game_id=1)
     assert reds.count() == 0                       # cancelled before first commit
 
 
@@ -62,7 +64,7 @@ def test_recovers_from_stale_continue_token(tmp_path):
     from meister_guide.scraper.wiki_client import InvalidContinueError
     conn, arts, reds, state = _setup(tmp_path)
     arts.add_article(7, "Wolf (mob)", "w", 1, None)
-    state.save(RedirectState(continue_token="STALE", done=3))
+    state.save(RedirectState(continue_token="STALE", done=3), 1)
 
     class StaleClient:
         def __init__(self):
@@ -74,7 +76,7 @@ def test_recovers_from_stale_continue_token(tmp_path):
             yield ([("Wolf", "Wolf (mob)")], None)
 
     client = StaleClient()
-    run_redirect_ingest(client, reds, arts, state, conn)
+    run_redirect_ingest(client, reds, arts, state, conn, game_id=1)
     assert client.tokens == ["STALE", None]        # tried stale, then restarted
     assert reds.count() == 1
-    assert state.load().continue_token is None
+    assert state.load(1).continue_token is None

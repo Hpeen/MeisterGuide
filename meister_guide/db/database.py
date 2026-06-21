@@ -4,7 +4,8 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from meister_guide.db.schema import CORE_TABLES, PHASE3_TABLES, PHASE6_TABLES
+from meister_guide.db.schema import (CORE_TABLES, PHASE3_TABLES, PHASE6_TABLES,
+                                      SCRAPE_STATE_DDL, REDIRECT_STATE_DDL)
 
 
 def default_db_path() -> Path:
@@ -41,6 +42,22 @@ def _ensure_column(conn, table, column, decl):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
+def _rebuild_state_table_if_legacy(conn, table, create_sql, cols, mc_id):
+    """Old state tables were single-row (CHECK id=1). Rebuild to the game-keyed
+    schema, moving the existing row to Minecraft. No-op once game_id exists."""
+    existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if "game_id" in existing:
+        return
+    conn.execute(f"ALTER TABLE {table} RENAME TO {table}_legacy")
+    conn.execute(create_sql)
+    conn.execute(
+        f"INSERT INTO {table} (game_id, {cols}) "
+        f"SELECT ?, {cols} FROM {table}_legacy WHERE id = 1",
+        (mc_id,),
+    )
+    conn.execute(f"DROP TABLE {table}_legacy")
+
+
 def migrate_game_ids(conn: sqlite3.Connection) -> None:
     """Backfill NULL game_id rows to the seeded Minecraft game. Runs AFTER games
     are seeded (needs Minecraft's id). Idempotent — only touches NULL rows."""
@@ -49,8 +66,16 @@ def migrate_game_ids(conn: sqlite3.Connection) -> None:
     if row is None:
         return
     mc_id = row[0]
-    conn.execute("UPDATE articles SET game_id = ? WHERE game_id IS NULL", (mc_id,))
-    conn.execute("UPDATE redirects SET game_id = ? WHERE game_id IS NULL", (mc_id,))
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    if "articles" in tables:
+        conn.execute("UPDATE articles SET game_id = ? WHERE game_id IS NULL", (mc_id,))
+    if "redirects" in tables:
+        conn.execute("UPDATE redirects SET game_id = ? WHERE game_id IS NULL", (mc_id,))
+    _rebuild_state_table_if_legacy(conn, "scrape_state", SCRAPE_STATE_DDL,
+                                   "continue_token, done, total, updated_at", mc_id)
+    _rebuild_state_table_if_legacy(conn, "redirect_state", REDIRECT_STATE_DDL,
+                                   "continue_token, done, updated_at", mc_id)
     conn.commit()
 
 

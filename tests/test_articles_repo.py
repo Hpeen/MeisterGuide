@@ -85,14 +85,14 @@ def test_scrape_state_defaults_then_persists(tmp_path):
     conn = connect(tmp_path / "s.db")
     init_db(conn)
     repo = ScrapeStateRepo(conn)
-    st = repo.load()
+    st = repo.load(1)
     assert st.continue_token is None and st.done == 0 and st.total is None
-    repo.save(ScrapeState(continue_token='{"gapcontinue":"Boat"}', done=40, total=16689))
-    again = repo.load()
+    repo.save(ScrapeState(continue_token='{"gapcontinue":"Boat"}', done=40, total=16689), 1)
+    again = repo.load(1)
     assert again.continue_token == '{"gapcontinue":"Boat"}'
     assert again.done == 40 and again.total == 16689
-    repo.save(ScrapeState(continue_token=None, done=16689, total=16689))
-    assert repo.load().continue_token is None
+    repo.save(ScrapeState(continue_token=None, done=16689, total=16689), 1)
+    assert repo.load(1).continue_token is None
 
 
 def test_search_ranked_surfaces_canonical_article_over_noise(tmp_path):

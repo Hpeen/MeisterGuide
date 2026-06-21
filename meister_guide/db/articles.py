@@ -267,27 +267,29 @@ class ScrapeState:
 
 
 class ScrapeStateRepo:
-    """Single-row (id=1) ingest progress, so an interrupted download resumes."""
+    """Per-game ingest progress (keyed by game_id) so an interrupted download
+    resumes."""
 
     def __init__(self, conn):
         self._conn = conn
 
-    def load(self) -> ScrapeState:
+    def load(self, game_id) -> ScrapeState:
         row = self._conn.execute(
-            "SELECT continue_token, done, total FROM scrape_state WHERE id = 1"
+            "SELECT continue_token, done, total FROM scrape_state WHERE game_id = ?",
+            (game_id,),
         ).fetchone()
         if row is None:
             return ScrapeState(None, 0, None)
         return ScrapeState(row[0], row[1], row[2])
 
-    def save(self, state: ScrapeState, commit=True) -> None:
+    def save(self, state: ScrapeState, game_id, commit=True) -> None:
         self._conn.execute(
-            "INSERT INTO scrape_state (id, continue_token, done, total, updated_at) "
-            "VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP) "
-            "ON CONFLICT(id) DO UPDATE SET "
+            "INSERT INTO scrape_state (game_id, continue_token, done, total, updated_at) "
+            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(game_id) DO UPDATE SET "
             "continue_token=excluded.continue_token, done=excluded.done, "
             "total=excluded.total, updated_at=CURRENT_TIMESTAMP",
-            (state.continue_token, state.done, state.total),
+            (game_id, state.continue_token, state.done, state.total),
         )
         if commit:
             self._conn.commit()

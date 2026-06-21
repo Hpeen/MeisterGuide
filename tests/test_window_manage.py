@@ -78,11 +78,11 @@ def test_clear_cancelled_keeps_guides(tmp_path):
 
 def test_clear_minecraft_resets_scrape_state(tmp_path):
     w, games, articles, mc, sub = _window(tmp_path)
-    w._scrape_state_repo.save(ScrapeState("token", 17915, 16689))
+    w._scrape_state_repo.save(ScrapeState("token", 17915, 16689), mc.id)
     _pick(w, mc.id)
     w._confirm = lambda *a: True
     w._on_clear_guides()
-    st = w._scrape_state_repo.load()
+    st = w._scrape_state_repo.load(mc.id)
     assert st.continue_token is None and st.done == 0
 
 

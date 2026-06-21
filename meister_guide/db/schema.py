@@ -1,6 +1,25 @@
 """SQLite schema for Meister Guide. Phase 2 creates the 5 core tables.
 The FTS5 search table is added in Phase 3."""
 
+SCRAPE_STATE_DDL = """
+CREATE TABLE IF NOT EXISTS scrape_state (
+    game_id INTEGER PRIMARY KEY,
+    continue_token TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    total INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+REDIRECT_STATE_DDL = """
+CREATE TABLE IF NOT EXISTS redirect_state (
+    game_id INTEGER PRIMARY KEY,
+    continue_token TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 CORE_TABLES = [
     """
     CREATE TABLE IF NOT EXISTS games (
@@ -64,15 +83,7 @@ PHASE3_TABLES = [
     )
     """,
     "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(title, body, content='')",
-    """
-    CREATE TABLE IF NOT EXISTS scrape_state (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        continue_token TEXT,
-        done INTEGER NOT NULL DEFAULT 0,
-        total INTEGER,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    """,
+    SCRAPE_STATE_DDL,
 ]
 
 # Phase 6: redirect aliases. minecraft.wiki has many popular topics (e.g. "Wolf",
@@ -92,12 +103,5 @@ PHASE6_TABLES = [
     )
     """,
     "CREATE VIRTUAL TABLE IF NOT EXISTS redirects_fts USING fts5(title, content='')",
-    """
-    CREATE TABLE IF NOT EXISTS redirect_state (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        continue_token TEXT,
-        done INTEGER NOT NULL DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    """,
+    REDIRECT_STATE_DDL,
 ]
