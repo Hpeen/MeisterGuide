@@ -60,3 +60,20 @@ def test_migration_is_idempotent(tmp_path):
     migrate_game_ids(conn)
     migrate_game_ids(conn)
     assert ScrapeStateRepo(conn).load(1) == ScrapeState("RESUME", 9000, 16000)
+
+
+def test_migration_tolerates_missing_redirect_state(tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "partial.db"))
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("CREATE TABLE games (id INTEGER PRIMARY KEY, name TEXT, "
+                 "process_names TEXT, wiki_url TEXT)")
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'Minecraft','[]')")
+    conn.execute("CREATE TABLE scrape_state (id INTEGER PRIMARY KEY CHECK (id=1), "
+                 "continue_token TEXT, done INTEGER NOT NULL DEFAULT 0, total INTEGER, "
+                 "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+    conn.execute("INSERT INTO scrape_state (id, continue_token, done, total) "
+                 "VALUES (1, 'TOK', 100, 200)")
+    conn.commit()
+    migrate_game_ids(conn)              # must not raise despite no redirect_state table
+    assert ScrapeStateRepo(conn).load(1) == ScrapeState("TOK", 100, 200)

@@ -46,6 +46,8 @@ def _rebuild_state_table_if_legacy(conn, table, create_sql, cols, mc_id):
     """Old state tables were single-row (CHECK id=1). Rebuild to the game-keyed
     schema, moving the existing row to Minecraft. No-op once game_id exists."""
     existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if not existing:            # table doesn't exist yet — nothing to migrate
+        return
     if "game_id" in existing:
         return
     conn.execute(f"ALTER TABLE {table} RENAME TO {table}_legacy")
