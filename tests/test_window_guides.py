@@ -45,20 +45,26 @@ def _two_games():
             Game(id=2, name="Subnautica", process_names=[], wiki_url="https://subnautica.fandom.com")]
 
 
-def test_update_button_names_the_active_game():
+def test_guides_picker_lists_all_games():
     QApplication.instance() or QApplication([])
     w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
-    w._on_manual_pick_game(1)
-    assert w.guides_update_btn.text() == "Update Minecraft guides"
-    w._on_manual_pick_game(2)
-    assert w.guides_update_btn.text() == "Update Subnautica guides"
+    names = [w.guides_game.itemText(i) for i in range(w.guides_game.count())]
+    assert names == ["Minecraft", "Subnautica"]
 
 
-def test_update_non_minecraft_explains_instead_of_downloading():
+def test_picker_drives_update_target_not_detection():
     QApplication.instance() or QApplication([])
     w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
-    w._on_manual_pick_game(2)              # Subnautica active
+    # Pick Subnautica in the Wiki tab regardless of the detected/active game.
+    w.guides_game.setCurrentIndex(w.guides_game.findText("Subnautica"))
     w._on_update_guides()
     assert w._ingest_thread is None        # no Minecraft download started
     assert "Subnautica" in w.guides_status.text()
     assert "Seed guides" in w.guides_status.text()
+
+
+def test_active_game_change_syncs_the_picker():
+    QApplication.instance() or QApplication([])
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
+    w._on_manual_pick_game(2)              # detection/manual switch to Subnautica
+    assert w.guides_game.currentData() == 2
