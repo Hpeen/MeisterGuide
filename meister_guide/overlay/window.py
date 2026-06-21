@@ -686,6 +686,10 @@ class OverlayWindow(QWidget):
         col.addWidget(split, 1)
 
         bar = QHBoxLayout()
+        self.guides_game = QComboBox()
+        self.guides_game.currentIndexChanged.connect(
+            lambda _i: self._on_guides_game_changed())
+        bar.addWidget(self.guides_game)
         self.guides_update_btn = QPushButton("Update guides")
         self.guides_update_btn.clicked.connect(self._on_update_guides)
         bar.addWidget(self.guides_update_btn)
@@ -696,25 +700,45 @@ class OverlayWindow(QWidget):
         bar.addWidget(self.guides_status)
         col.addLayout(bar)
 
+        self._refresh_guides_games()
         self._refresh_guides_status()
-        self._refresh_update_button()
         return page
 
+    def _refresh_guides_games(self):
+        """Populate the Wiki-tab game picker, keeping the current pick (or
+        defaulting to the active game, then Minecraft)."""
+        if not hasattr(self, "guides_game"):
+            return
+        prior = self.guides_game.currentData()
+        self.guides_game.blockSignals(True)
+        self.guides_game.clear()
+        for g in self._games:
+            self.guides_game.addItem(g.name, g.id)
+        want = prior
+        if want is None and self.active_game is not None:
+            want = self.active_game.id
+        idx = self.guides_game.findData(want) if want is not None else -1
+        if idx < 0:
+            mc = self.guides_game.findText("Minecraft")
+            idx = mc if mc >= 0 else (0 if self.guides_game.count() else -1)
+        if idx >= 0:
+            self.guides_game.setCurrentIndex(idx)
+        self.guides_game.blockSignals(False)
+
+    def _on_guides_game_changed(self):
+        self._refresh_guides_status()
+
     def _guides_target_game(self):
-        """The game the Wiki tab's Update button acts on: the active game, or the
-        seeded Minecraft fallback before detection has picked one."""
+        """The game the Wiki tab acts on: whatever the picker has selected, with
+        the active game and then Minecraft as fallbacks."""
+        gid = self.guides_game.currentData() if hasattr(self, "guides_game") else None
+        if gid is not None:
+            g = next((x for x in self._games if x.id == gid), None)
+            if g is not None:
+                return g
         if self.active_game is not None:
             return self.active_game
         return next((g for g in self._games if g.name == "Minecraft"), None)
-
-    def _refresh_update_button(self):
-        """Name the active game on the Update button so it's clear whose guides a
-        download touches."""
-        if not hasattr(self, "guides_update_btn"):
-            return
-        game = self._guides_target_game()
-        self.guides_update_btn.setText(
-            f"Update {game.name} guides" if game is not None else "Update guides")
 
     def _on_update_guides(self):
         if self._db_path is None or self._ingest_thread is not None:
@@ -960,6 +984,7 @@ class OverlayWindow(QWidget):
         self._rebuild_game_menu()
         self._refresh_seed_games()
         self._refresh_manage_games()
+        self._refresh_guides_games()
         self.addgame_name.clear()
         self.addgame_wiki.clear()
         self.addgame_procs.clear()
@@ -1194,15 +1219,19 @@ class OverlayWindow(QWidget):
         if self._articles_repo is None:
             self.guides_status.setText("")
             return
-        n = self._articles_repo.count(game_id=self._active_game_id())
+        game = self._guides_target_game()
+        n = self._articles_repo.count(game_id=(game.id if game is not None else None))
         articles_done = True
         redirects_done = True
-        if self._scrape_state_repo is not None:
-            articles_done = (self._scrape_state_repo.load().continue_token is None
-                             and n > 0)
-        if self._redirect_state_repo is not None:
-            rs = self._redirect_state_repo.load()
-            redirects_done = rs.continue_token is None and rs.done > 0
+        # The resume-token state tracks Minecraft's full-wiki walk, so it only
+        # describes Minecraft; other games just show their stored count.
+        if game is not None and game.name == "Minecraft":
+            if self._scrape_state_repo is not None:
+                articles_done = (self._scrape_state_repo.load().continue_token is None
+                                 and n > 0)
+            if self._redirect_state_repo is not None:
+                rs = self._redirect_state_repo.load()
+                redirects_done = rs.continue_token is None and rs.done > 0
         self.guides_status.setText(
             guides_status_text(n, articles_done, redirects_done)
         )
@@ -1238,7 +1267,7 @@ class OverlayWindow(QWidget):
         self._rebuild_game_menu()
         self._refresh_seed_games()
         self._refresh_manage_games()
-        self._refresh_update_button()
+        self._refresh_guides_games()
 
     def _active_game_id(self):
         if self.active_game is not None:
@@ -1253,11 +1282,12 @@ class OverlayWindow(QWidget):
     def _set_active(self, game, manual: bool):
         self.active_game = game
         self._update_game_pill()
-        # Keep the Wiki tab pointed at the now-active game: its guide count and
-        # the Update button must reflect the switch, not whatever was active before.
-        self._refresh_update_button()
-        if hasattr(self, "guides_status"):
-            self._refresh_guides_status()
+        # Point the Wiki-tab picker at the now-active game (the user can still
+        # override it). Changing the picker refreshes the count via its handler.
+        if hasattr(self, "guides_game") and game is not None:
+            idx = self.guides_game.findData(game.id)
+            if idx >= 0:
+                self.guides_game.setCurrentIndex(idx)
 
     def set_detected_game(self, game):
         """Called by the detector. A detection always wins over a manual pick."""
