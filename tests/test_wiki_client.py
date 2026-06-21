@@ -1,6 +1,18 @@
 from meister_guide.scraper.wiki_client import WikiClient, WikiArticle
 
 
+def _extracts_client(batch_handler, **kw):
+    """A WikiClient whose siteinfo reports TextExtracts present, so it takes the
+    extracts path; all other requests go to batch_handler. Lets the existing
+    extracts-path tests keep their request fakes unchanged."""
+    def get(params):
+        if params.get("meta") == "siteinfo" and params.get("siprop") == "extensions":
+            return {"query": {"extensions": [{"name": "TextExtracts"}]}}
+        return batch_handler(params)
+    kw.setdefault("sleep", lambda s: None)
+    return WikiClient(http_get=get, delay=0, **kw)
+
+
 def _one_batch_response():
     return {
         "query": {"pages": {
@@ -17,7 +29,7 @@ def test_iter_batches_parses_articles_and_stops():
     def fake_get(params):
         calls.append(params)
         return _one_batch_response()
-    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(fake_get)
 
     batches = list(client.iter_batches())
     assert len(batches) == 1
@@ -42,7 +54,7 @@ def test_iter_batches_follows_continue_token():
     def fake_get(params):
         seen_params.append(dict(params))
         return responses.pop(0)
-    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(fake_get)
 
     batches = list(client.iter_batches())
     assert [t for _, t in batches][:1] == ['{"gapcontinue": "B", "continue": "gapcontinue||"}']
@@ -61,7 +73,7 @@ def test_retries_transient_error_then_succeeds():
             raise RuntimeError("503 Service Unavailable")
         return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
     slept = []
-    client = WikiClient(http_get=flaky_get, delay=0, sleep=lambda s: slept.append(s))
+    client = _extracts_client(flaky_get, sleep=lambda s: slept.append(s))
 
     batches = list(client.iter_batches())
     assert calls["n"] == 2            # retried once
@@ -76,7 +88,7 @@ def test_maxlag_error_is_retried():
         if calls["n"] == 1:
             return {"error": {"code": "maxlag", "info": "Waiting for a server"}}
         return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
-    client = WikiClient(http_get=lagging_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(lagging_get)
     list(client.iter_batches())
     assert calls["n"] == 2
 
@@ -84,8 +96,7 @@ def test_maxlag_error_is_retried():
 def test_gives_up_after_max_retries():
     def always_fail(params):
         raise RuntimeError("network down")
-    client = WikiClient(http_get=always_fail, delay=0, sleep=lambda s: None,
-                        max_retries=3)
+    client = _extracts_client(always_fail, max_retries=3)
     import pytest
     with pytest.raises(RuntimeError):
         list(client.iter_batches())
@@ -94,8 +105,7 @@ def test_gives_up_after_max_retries():
 def test_non_maxlag_api_error_raises():
     def erroring_get(params):
         return {"error": {"code": "badvalue", "info": "Unrecognized value"}}
-    client = WikiClient(http_get=erroring_get, delay=0, sleep=lambda s: None,
-                        max_retries=3)
+    client = _extracts_client(erroring_get, max_retries=3)
     import pytest
     with pytest.raises(RuntimeError):
         list(client.iter_batches())
@@ -117,7 +127,7 @@ def test_request_gaplimit_is_aligned_to_extract_limit():
     def fake_get(params):
         captured.append(dict(params))
         return {"query": {"pages": {"1": {"pageid": 1, "title": "A", "extract": "a"}}}}
-    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(fake_get)
     next(client.iter_batches())
     assert captured[0]["gaplimit"] == 20
 
@@ -196,7 +206,7 @@ def test_badcontinue_raises_invalid_continue_error():
     from meister_guide.scraper.wiki_client import InvalidContinueError
     def fake_get(params):
         return {"error": {"code": "badcontinue", "info": "Invalid continue param."}}
-    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(fake_get)
     import pytest
     with pytest.raises(InvalidContinueError):
         list(client.iter_batches())
@@ -241,7 +251,7 @@ def test_fetch_by_titles_builds_titles_param_and_parses():
             "1": {"pageid": 1, "title": "Creeper", "extract": "boom", "lastrevid": 5},
             "2": {"pageid": 2, "title": "Cow", "extract": "moo", "lastrevid": 6},
         }}}
-    client = WikiClient(http_get=fake_get, delay=0, sleep=lambda s: None)
+    client = _extracts_client(fake_get)
     arts = client.fetch_by_titles(["Creeper", "Cow"])
     assert sorted(a.title for a in arts) == ["Cow", "Creeper"]
     assert all(isinstance(a, WikiArticle) for a in arts)
@@ -291,3 +301,76 @@ def test_has_textextracts_false_on_detection_failure():
         raise RuntimeError("network down")
     client = WikiClient(http_get=boom, delay=0, sleep=lambda s: None, max_retries=2)
     assert client.has_textextracts() is False
+
+
+def _no_textextracts_get(handler):
+    """Wrap a request handler so siteinfo reports NO TextExtracts (parse path)."""
+    def get(params):
+        if params.get("meta") == "siteinfo" and params.get("siprop") == "extensions":
+            return {"query": {"extensions": []}}
+        return handler(params)
+    return get
+
+
+def test_parse_page_builds_article_via_extract():
+    def get(params):
+        assert params["action"] == "parse" and params["page"] == "Seamoth"
+        assert params["prop"] == "text"
+        return {"parse": {"pageid": 7, "title": "Seamoth", "revid": 42,
+                          "text": "<p>raw html</p>"}}
+    client = WikiClient(http_get=get, delay=0, sleep=lambda s: None,
+                        extract=lambda html: "clean text for " + html)
+    art = client._parse_page("Seamoth")
+    assert isinstance(art, WikiArticle)
+    assert (art.pageid, art.title, art.revid) == (7, "Seamoth", 42)
+    assert art.text == "clean text for <p>raw html</p>"
+
+
+def test_parse_page_none_when_text_empty():
+    client = WikiClient(
+        http_get=lambda p: {"parse": {"pageid": 1, "title": "X", "revid": 1,
+                                      "text": "<p></p>"}},
+        delay=0, sleep=lambda s: None, extract=lambda html: "   ")
+    assert client._parse_page("X") is None
+
+
+def test_parse_page_none_when_no_parse_key():
+    client = WikiClient(http_get=lambda p: {"error": {"code": "missingtitle"}},
+                        delay=0, sleep=lambda s: None, extract=lambda h: "t")
+    assert client._parse_page("Ghost") is None
+
+
+def test_fetch_by_titles_uses_parse_when_no_textextracts():
+    def handler(params):
+        assert params["action"] == "parse"
+        title = params["page"]
+        return {"parse": {"pageid": hash(title) & 0xffff, "title": title,
+                          "revid": 1, "text": f"<p>{title}</p>"}}
+    client = WikiClient(http_get=_no_textextracts_get(handler), delay=0,
+                        sleep=lambda s: None, extract=lambda h: h)
+    arts = client.fetch_by_titles(["Reaper Leviathan", "Seamoth"])
+    assert sorted(a.title for a in arts) == ["Reaper Leviathan", "Seamoth"]
+    assert all(isinstance(a, WikiArticle) for a in arts)
+
+
+def test_iter_batches_uses_parse_when_no_textextracts():
+    page1 = {"query": {"allpages": [{"title": "A"}, {"title": "B"}]},
+             "continue": {"apcontinue": "C", "continue": "-||"}}
+    page2 = {"query": {"allpages": [{"title": "C"}]}}
+    allpages = [page1, page2]
+    def handler(params):
+        if params.get("list") == "allpages":
+            assert params["apnamespace"] == 0
+            return allpages.pop(0)
+        if params.get("action") == "parse":
+            t = params["page"]
+            return {"parse": {"pageid": ord(t), "title": t, "revid": 1,
+                              "text": f"<p>{t}</p>"}}
+        raise AssertionError(params)
+    client = WikiClient(http_get=_no_textextracts_get(handler), delay=0,
+                        sleep=lambda s: None, extract=lambda h: h)
+    batches = list(client.iter_batches())
+    titles = [a.title for batch, _ in batches for a in batch]
+    assert titles == ["A", "B", "C"]
+    assert batches[0][1] == '{"apcontinue": "C", "continue": "-||"}'
+    assert batches[-1][1] is None
