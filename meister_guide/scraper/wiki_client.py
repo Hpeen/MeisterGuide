@@ -77,6 +77,9 @@ class WikiClient:
                 self._has_extracts = any(e.get("name") == "TextExtracts"
                                          for e in exts)
             except Exception:
+                # Treat as absent (use the parse path); cached for this client's
+                # lifetime — a fresh WikiClient is built per download, so the next
+                # run re-detects.
                 self._has_extracts = False
         return self._has_extracts
 
