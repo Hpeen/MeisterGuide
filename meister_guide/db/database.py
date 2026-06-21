@@ -1,5 +1,6 @@
 """SQLite connection and schema initialisation."""
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -10,6 +11,18 @@ def default_db_path() -> Path:
     """%APPDATA%\\MeisterGuide\\meister.db (falls back to home if APPDATA unset)."""
     base = os.environ.get("APPDATA") or str(Path.home())
     return Path(base) / "MeisterGuide" / "meister.db"
+
+
+def seed_db_if_missing(target, seed) -> bool:
+    """Copy a bundled seed DB to `target` on first run. Copies only when `target`
+    does not exist and `seed` does; returns whether a copy happened. Never
+    overwrites an existing user DB, so upgrades keep the user's data."""
+    target, seed = Path(target), Path(seed)
+    if target.exists() or not seed.exists():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(seed, target)
+    return True
 
 
 def connect(db_path) -> sqlite3.Connection:
