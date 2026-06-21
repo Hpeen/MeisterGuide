@@ -104,3 +104,24 @@ def test_run_ingest_tags_articles_with_game_id(tmp_path):
     batches = [([WikiArticle(1, "Creeper", "a creeper", 1)], None)]
     run_ingest(FakeClient(batches), arts, state, conn, game_id=42)
     assert conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()[0] == 42
+
+
+def test_run_ingest_builds_urls_from_base(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    batches = [([WikiArticle(1, "Reaper Leviathan", "big", 1)], None)]
+    run_ingest(FakeClient(batches), arts, state, conn, game_id=1,
+               base="https://subnautica.fandom.com")
+    url = conn.execute("SELECT url FROM articles WHERE pageid=1").fetchone()[0]
+    assert url == "https://subnautica.fandom.com/wiki/Reaper_Leviathan"
+
+
+def test_run_ingest_uses_total_override_without_calling_count(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    class NoCountClient(FakeClient):
+        def article_count(self):
+            raise AssertionError("article_count must not be called when total is given")
+    seen = []
+    run_ingest(NoCountClient([([WikiArticle(1, "A", "a", 1)], None)]),
+               arts, state, conn, game_id=1, total=42,
+               progress_cb=lambda d, t: seen.append((d, t)))
+    assert seen[-1][1] == 42
