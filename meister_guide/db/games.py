@@ -31,12 +31,14 @@ _STALE_MINECRAFT_PROCESS_LISTS = [
 ]
 
 def api_url_for(wiki_url):
-    """Derive a MediaWiki action-API endpoint from a wiki base URL. Works for
-    minecraft.wiki and Fandom wikis. Returns None when no wiki_url is set.
-    Consumed by SP2's on-demand fetcher."""
+    """Derive a MediaWiki action-API endpoint from a wiki URL. Normalizes a pasted
+    page URL to its base first (e.g. .../wiki/Subnautica_Wiki -> host), so the
+    endpoint is <base>/api.php. Works for minecraft.wiki and Fandom wikis. Returns
+    None when no wiki_url is set."""
     if not wiki_url:
         return None
-    return wiki_url.rstrip("/") + "/api.php"
+    from meister_guide.scraper.urls import wiki_base
+    return wiki_base(wiki_url) + "/api.php"
 
 
 _SELECT = "SELECT id, name, process_names, wiki_url FROM games"

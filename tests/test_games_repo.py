@@ -64,3 +64,13 @@ def test_api_url_for_derives_mediawiki_endpoint():
     assert api_url_for("https://minecraft.wiki") == "https://minecraft.wiki/api.php"
     assert api_url_for("https://subnautica.fandom.com/") == "https://subnautica.fandom.com/api.php"
     assert api_url_for(None) is None
+
+
+def test_api_url_for_normalizes_a_pasted_page_url():
+    # Users paste a wiki page URL, not the bare base; the API endpoint must still
+    # resolve to <host>/api.php, not <host>/wiki/Page/api.php.
+    from meister_guide.db.games import api_url_for
+    assert api_url_for("https://subnautica.fandom.com/wiki/Subnautica_Wiki") == \
+        "https://subnautica.fandom.com/api.php"
+    assert api_url_for("https://minecraft.wiki/w/Creeper") == \
+        "https://minecraft.wiki/api.php"
