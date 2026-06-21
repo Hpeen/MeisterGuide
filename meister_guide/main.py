@@ -46,8 +46,9 @@ def main() -> int:
 
     settings = QSettings(ORG, APP)
 
-    # First run: drop in the bundled Minecraft corpus if the user has no DB yet.
-    # On failure (e.g. permissions) start with an empty corpus rather than
+    # First run: drop in a bundled seed corpus if one was added to the build and
+    # the user has no DB yet. The default build ships none, so this is normally a
+    # no-op. On failure (e.g. permissions) start with an empty corpus rather than
     # refusing to launch — on-demand/web fetch still answer at runtime.
     try:
         seed_db_if_missing(default_db_path(), resource_path("seed/meister.db"))
