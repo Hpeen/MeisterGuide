@@ -320,6 +320,9 @@ class WikiClient:
         while True:
             params = {
                 "action": "query", "format": "json", "list": "allpages",
+                # aplimit kept at 50: each title is a separate action=parse fetch,
+                # so a small enumeration page keeps per-batch commits frequent
+                # (mirrors the redirect walker).
                 "apnamespace": 0, "aplimit": 50, "maxlag": 5,
             }
             if token:

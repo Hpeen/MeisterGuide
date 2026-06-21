@@ -335,6 +335,14 @@ def test_parse_page_none_when_text_empty():
 
 
 def test_parse_page_none_when_no_parse_key():
+    # A response with no "parse" key (and no error) -> the `if not parse` branch.
+    client = WikiClient(http_get=lambda p: {"query": {}},
+                        delay=0, sleep=lambda s: None, extract=lambda h: "t")
+    assert client._parse_page("Ghost") is None
+
+
+def test_parse_page_none_on_error_response():
+    # An API error (e.g. missing page) makes _fetch raise; _parse_page catches it.
     client = WikiClient(http_get=lambda p: {"error": {"code": "missingtitle"}},
                         delay=0, sleep=lambda s: None, extract=lambda h: "t")
     assert client._parse_page("Ghost") is None
