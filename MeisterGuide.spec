@@ -48,3 +48,18 @@ exe = EXE(
     entitlements_file=None,
     icon=['assets/icon.ico'],
 )
+
+# Mirror the fresh build into the user's launch folder so double-clicking
+# "Launch from here/MeisterGuide.exe" never runs a stale binary against a
+# migrated DB. Best-effort: a warning (not a build failure) if the file is locked.
+import os
+import shutil
+
+_built = os.path.join(DISTPATH, "MeisterGuide.exe")
+_launch_dir = os.path.join(SPECPATH, "Launch from here")
+try:
+    os.makedirs(_launch_dir, exist_ok=True)
+    shutil.copyfile(_built, os.path.join(_launch_dir, "MeisterGuide.exe"))
+    print("Copied MeisterGuide.exe to 'Launch from here/'")
+except OSError as exc:
+    print(f"WARNING: could not update 'Launch from here/': {exc}")

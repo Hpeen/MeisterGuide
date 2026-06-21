@@ -10,6 +10,11 @@
 2. Build: `py -m PyInstaller MeisterGuide.spec`
 3. Ship `dist/MeisterGuide.exe`.
 
+The build also copies the fresh exe to `Launch from here/MeisterGuide.exe` (the
+local double-click launch point) so you never run a stale binary against a
+DB that a newer build has already migrated. Close any running instance before
+building, or the copy is skipped with a warning (the `dist/` build still succeeds).
+
 ## Bundling a prebuilt corpus (optional)
 The default build ships **no** seed DB — the app fills guides via on-demand wiki
 fetch + free web search at runtime (needs internet for the first answer on a
