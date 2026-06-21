@@ -6,18 +6,33 @@
 # add ('seed/meister.db', 'seed') to datas — main.py copies it to %APPDATA% on
 # first run if the user has none.
 # hiddenimports: lazy-imported deps PyInstaller's static analysis can miss.
+from PyInstaller.utils.hooks import collect_all
+
+_datas = [
+    ('assets/fonts/Archivo.ttf', 'assets/fonts'),
+    ('assets/fonts/PirataOne-Regular.ttf', 'assets/fonts'),
+    ('assets/fonts/SplineSansMono.ttf', 'assets/fonts'),
+    ('assets/icon.ico', 'assets'),
+]
+_binaries = []
+_hiddenimports = ['anthropic', 'trafilatura', 'ddgs']
+
+# trafilatura (and its data-bearing deps) ship config + stoplist files and
+# lazy submodules that PyInstaller misses by default — without them extract()
+# raises "No option 'min_extracted_size'" at runtime. collect_all bundles the
+# data, binaries, and submodules so the parse path works in the frozen exe.
+for _pkg in ('trafilatura', 'justext', 'courlan', 'htmldate'):
+    _d, _b, _h = collect_all(_pkg)
+    _datas += _d
+    _binaries += _b
+    _hiddenimports += _h
 
 a = Analysis(
     ['meister_guide/main.py'],
     pathex=[],
-    binaries=[],
-    datas=[
-        ('assets/fonts/Archivo.ttf', 'assets/fonts'),
-        ('assets/fonts/PirataOne-Regular.ttf', 'assets/fonts'),
-        ('assets/fonts/SplineSansMono.ttf', 'assets/fonts'),
-        ('assets/icon.ico', 'assets'),
-    ],
-    hiddenimports=['anthropic', 'trafilatura', 'ddgs'],
+    binaries=_binaries,
+    datas=_datas,
+    hiddenimports=_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
