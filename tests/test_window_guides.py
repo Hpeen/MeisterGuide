@@ -100,7 +100,7 @@ def test_counted_handler_shows_estimate():
     QApplication.instance() or QApplication([])
     w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(),
                       ":memory:")
-    w.guides_game.setCurrentIndex(w.guides_game.findText("Subnautica"))
+    w._ingest_game_name = "Subnautica"   # set by _start_ingest in real use
     w._on_ingest_counted(6200)
     assert "6,200 pages" in w.guides_status.text()
     assert "Subnautica" in w.guides_status.text()

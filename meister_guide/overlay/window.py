@@ -758,6 +758,9 @@ class OverlayWindow(QWidget):
         self.guides_progress.setRange(0, 0)
         self.guides_status.setText("Starting…")
         self._last_progress_done = None
+        # Remember which game this download is for, so the estimate names it even
+        # if the user switches the Wiki-tab picker while it runs.
+        self._ingest_game_name = game.name
         self._ingest_thread = QThread(self)
         self._ingest_worker = IngestWorker(
             str(self._db_path), game_id=game.id,
@@ -771,8 +774,7 @@ class OverlayWindow(QWidget):
         self._ingest_thread.start()
 
     def _on_ingest_counted(self, total):
-        game = self._guides_target_game()
-        name = game.name if game is not None else "This game"
+        name = getattr(self, "_ingest_game_name", None) or "This game"
         if total > 0:
             msg = f"{name} wiki has ~{total:,} pages. Downloading…"
             if total > 25000:
