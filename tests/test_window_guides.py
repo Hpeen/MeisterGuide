@@ -3,6 +3,7 @@ from PySide6.QtCore import QSettings
 
 from meister_guide.overlay.window import OverlayWindow
 from meister_guide.db.articles import SearchHit
+from meister_guide.db.games import Game
 
 
 class StubRepo:
@@ -37,3 +38,27 @@ def test_progress_shows_catching_up_when_count_stalls():
     w._on_ingest_progress(1281, 16693)            # advancing again -> normal
     assert "catching up" not in w.guides_status.text().lower()
     assert "1,281" in w.guides_status.text()
+
+
+def _two_games():
+    return [Game(id=1, name="Minecraft", process_names=[], wiki_url="https://minecraft.wiki"),
+            Game(id=2, name="Subnautica", process_names=[], wiki_url="https://subnautica.fandom.com")]
+
+
+def test_update_button_names_the_active_game():
+    QApplication.instance() or QApplication([])
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
+    w._on_manual_pick_game(1)
+    assert w.guides_update_btn.text() == "Update Minecraft guides"
+    w._on_manual_pick_game(2)
+    assert w.guides_update_btn.text() == "Update Subnautica guides"
+
+
+def test_update_non_minecraft_explains_instead_of_downloading():
+    QApplication.instance() or QApplication([])
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
+    w._on_manual_pick_game(2)              # Subnautica active
+    w._on_update_guides()
+    assert w._ingest_thread is None        # no Minecraft download started
+    assert "Subnautica" in w.guides_status.text()
+    assert "Seed guides" in w.guides_status.text()
