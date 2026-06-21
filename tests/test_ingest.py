@@ -125,3 +125,15 @@ def test_run_ingest_uses_total_override_without_calling_count(tmp_path):
                arts, state, conn, game_id=1, total=42,
                progress_cb=lambda d, t: seen.append((d, t)))
     assert seen[-1][1] == 42
+
+
+def test_run_ingest_caller_total_wins_over_saved_on_resume(tmp_path):
+    from meister_guide.scraper.ingest import ScrapeState
+    conn, arts, state = _setup(tmp_path)
+    # A prior run saved a total of 99; a fresh resume passes total=42 explicitly.
+    state.save(ScrapeState(continue_token=None, done=1, total=99), 1)
+    seen = []
+    run_ingest(FakeClient([([WikiArticle(2, "B", "b", 1)], None)]),
+               arts, state, conn, game_id=1, total=42,
+               progress_cb=lambda d, t: seen.append((d, t)))
+    assert seen[-1][1] == 42        # caller's total wins, not the saved 99

@@ -20,15 +20,17 @@ def run_ingest(client, articles_repo, state_repo, conn,
 
     `base` is the wiki display-URL root (e.g. "https://minecraft.wiki");
     article URLs are built as <base>/wiki/<Title_With_Underscores>.
-    `total` overrides the page-count so article_count() is not called."""
+    Total resolution order: explicit `total` argument wins; if None, falls back
+    to the saved state's total; if still None, calls article_count()."""
     saved = state_repo.load(game_id)
-    if saved.total is not None:
-        total = saved.total
-    elif total is None:
-        try:
-            total = client.article_count()
-        except Exception:
-            total = None
+    if total is None:
+        if saved.total is not None:
+            total = saved.total
+        else:
+            try:
+                total = client.article_count()
+            except Exception:
+                total = None
     try:
         _ingest_from(saved.continue_token, saved.done,
                      client, articles_repo, state_repo, conn, total,
