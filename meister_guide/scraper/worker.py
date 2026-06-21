@@ -19,13 +19,17 @@ from meister_guide.ai.ranking import is_noise
 
 class IngestWorker(QObject):
     progress = Signal(int, int)   # done, total (total may be 0 if unknown)
+    counted = Signal(int)         # wiki page count, emitted before the walk
     finished = Signal()
     error = Signal(str)
 
-    def __init__(self, db_path, game_id=None, client=None):
+    def __init__(self, db_path, game_id=None, api_url=None, page_url_base="",
+                 client=None):
         super().__init__()
         self._db_path = db_path
         self._game_id = game_id
+        self._api_url = api_url
+        self._page_url_base = page_url_base
         self._client = client
         self._cancel = False
 
@@ -37,19 +41,27 @@ class IngestWorker(QObject):
         try:
             conn = connect(self._db_path)
             init_db(conn)
-            client = self._client or WikiClient()
+            if self._client is not None:
+                client = self._client
+            elif self._api_url:
+                client = WikiClient(api_url=self._api_url)
+            else:
+                client = WikiClient()
             articles_repo = ArticlesRepo(conn)
             # One-time cleanup: drop any noise pages (versioned/changelog/disambig)
             # stored before noise filtering existed. Cheap once the corpus is clean.
             articles_repo.prune_noise(is_noise)
+            total = None
+            try:
+                total = client.article_count()
+            except Exception:
+                total = None
+            self.counted.emit(total or 0)
             run_ingest(
-                client,
-                articles_repo,
-                ScrapeStateRepo(conn),
-                conn,
+                client, articles_repo, ScrapeStateRepo(conn), conn,
                 progress_cb=lambda d, t: self.progress.emit(d, t or 0),
                 should_cancel=lambda: self._cancel,
-                game_id=self._game_id,
+                game_id=self._game_id, base=self._page_url_base, total=total,
             )
             if self._cancel:
                 return
@@ -57,11 +69,8 @@ class IngestWorker(QObject):
             # stored, so popular redirect-only topics ("Wolf", "Redstone") become
             # reachable in chat. Progress is a running count (total unknown).
             run_redirect_ingest(
-                client,
-                RedirectsRepo(conn),
-                articles_repo,
-                RedirectStateRepo(conn),
-                conn,
+                client, RedirectsRepo(conn), articles_repo,
+                RedirectStateRepo(conn), conn,
                 progress_cb=lambda d: self.progress.emit(d, 0),
                 should_cancel=lambda: self._cancel,
                 game_id=self._game_id,

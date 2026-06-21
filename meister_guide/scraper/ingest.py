@@ -2,15 +2,13 @@
 progress/cancel hooks. No Qt here so it stays unit-testable."""
 from meister_guide.db.articles import ScrapeState  # re-export for callers
 from meister_guide.scraper.wiki_client import InvalidContinueError
+from meister_guide.scraper.urls import page_url
 from meister_guide.ai.ranking import is_noise
 
 
-def _url_for(title: str) -> str:
-    return "https://minecraft.wiki/w/" + title.replace(" ", "_")
-
-
 def run_ingest(client, articles_repo, state_repo, conn,
-               progress_cb=None, should_cancel=None, game_id=None):
+               progress_cb=None, should_cancel=None, game_id=None,
+               base="", total=None):
     """Ingest all article batches from `client` into the repos.
 
     Resumes from the saved continue token, commits once per batch (so a crash
@@ -18,28 +16,34 @@ def run_ingest(client, articles_repo, state_repo, conn,
 
     If the saved resume token is rejected as stale/invalid (e.g. it predates a
     query-parameter change, or expired), restart enumeration from the beginning
-    once — add_article is idempotent, so already-stored articles are skipped."""
-    total = state_repo.load().total
-    if total is None:
-        try:
-            total = client.article_count()
-        except Exception:
-            total = None
+    once — add_article is idempotent, so already-stored articles are skipped.
 
+    `base` is the wiki display-URL root (e.g. "https://minecraft.wiki");
+    article URLs are built as <base>/wiki/<Title_With_Underscores>.
+    Total resolution order: explicit `total` argument wins; if None, falls back
+    to the saved state's total; if still None, calls article_count()."""
+    saved = state_repo.load(game_id)
+    if total is None:
+        if saved.total is not None:
+            total = saved.total
+        else:
+            try:
+                total = client.article_count()
+            except Exception:
+                total = None
     try:
-        _ingest_from(state_repo.load().continue_token, state_repo.load().done,
+        _ingest_from(saved.continue_token, saved.done,
                      client, articles_repo, state_repo, conn, total,
-                     progress_cb, should_cancel, game_id)
+                     progress_cb, should_cancel, game_id, base)
     except InvalidContinueError:
-        # Drop the stale token and re-walk from the start (idempotent).
-        restart_done = articles_repo.count()
-        state_repo.save(ScrapeState(None, restart_done, total))
+        restart_done = articles_repo.count(game_id=game_id)
+        state_repo.save(ScrapeState(None, restart_done, total), game_id)
         _ingest_from(None, restart_done, client, articles_repo, state_repo,
-                     conn, total, progress_cb, should_cancel, game_id)
+                     conn, total, progress_cb, should_cancel, game_id, base)
 
 
 def _ingest_from(token, done, client, articles_repo, state_repo, conn, total,
-                 progress_cb, should_cancel, game_id=None):
+                 progress_cb, should_cancel, game_id=None, base=""):
     for articles, next_token in client.iter_batches(start_token=token):
         if should_cancel and should_cancel():
             return
@@ -47,13 +51,13 @@ def _ingest_from(token, done, client, articles_repo, state_repo, conn, total,
             if is_noise(art.title):
                 continue  # skip versioned/changelog/disambig pages — never useful
             if articles_repo.add_article(art.pageid, art.title, art.text,
-                                         art.revid, _url_for(art.title),
+                                         art.revid, page_url(base, art.title),
                                          game_id=game_id, commit=False):
                 done += 1
-        state_repo.save(ScrapeState(next_token, done, total), commit=False)
+        state_repo.save(ScrapeState(next_token, done, total), game_id, commit=False)
         conn.commit()
         if progress_cb:
             progress_cb(done, total)
 
     # Reached the end: clear the resume token, keep the final count.
-    state_repo.save(ScrapeState(None, done, total))
+    state_repo.save(ScrapeState(None, done, total), game_id)

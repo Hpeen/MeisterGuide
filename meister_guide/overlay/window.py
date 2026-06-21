@@ -744,30 +744,44 @@ class OverlayWindow(QWidget):
         if self._db_path is None or self._ingest_thread is not None:
             return
         game = self._guides_target_game()
-        if game is None or game.name != "Minecraft":
-            # Only Minecraft has a wired full-wiki download; other games fill in
-            # from on-demand fetch and seeding.
-            who = game.name if game is not None else "this game"
-            self.guides_status.setText(
-                f"Full guide downloads aren't ready for {who} yet. Ask Meister a "
-                f"question to pull pages as you need them, or use 'Seed guides "
-                f"from a category' in Settings.")
+        if game is None:
             return
-        mc_id = game.id
+        if not game.wiki_url:
+            self.guides_status.setText(
+                "This game has no wiki URL yet. Add one in Settings first.")
+            return
+        self._start_ingest(game)
+
+    def _start_ingest(self, game):
         self.guides_update_btn.setEnabled(False)
         self.guides_progress.setVisible(True)
-        self.guides_progress.setRange(0, 0)  # indeterminate until first progress
+        self.guides_progress.setRange(0, 0)
         self.guides_status.setText("Starting…")
         self._last_progress_done = None
-
+        # Remember which game this download is for, so the estimate names it even
+        # if the user switches the Wiki-tab picker while it runs.
+        self._ingest_game_name = game.name
         self._ingest_thread = QThread(self)
-        self._ingest_worker = IngestWorker(str(self._db_path), game_id=mc_id)
+        self._ingest_worker = IngestWorker(
+            str(self._db_path), game_id=game.id,
+            api_url=api_url_for(game.wiki_url), page_url_base=game.wiki_url)
         self._ingest_worker.moveToThread(self._ingest_thread)
         self._ingest_thread.started.connect(self._ingest_worker.run)
         self._ingest_worker.progress.connect(self._on_ingest_progress)
+        self._ingest_worker.counted.connect(self._on_ingest_counted)
         self._ingest_worker.finished.connect(self._on_ingest_done)
         self._ingest_worker.error.connect(self._on_ingest_error)
         self._ingest_thread.start()
+
+    def _on_ingest_counted(self, total):
+        name = getattr(self, "_ingest_game_name", None) or "This game"
+        if total > 0:
+            msg = f"{name} wiki has ~{total:,} pages. Downloading…"
+            if total > 25000:
+                msg += " This will take a while."
+        else:
+            msg = f"Downloading {name} guides…"
+        self.guides_status.setText(msg)
 
     def _on_ingest_progress(self, done, total):
         # `total` is the wiki's content-article statistic, but `done` counts every
@@ -1108,17 +1122,15 @@ class OverlayWindow(QWidget):
             game is not None and game.name != "Minecraft")
 
     def _clear_game_guides(self, game):
-        """Delete a game's stored articles + redirect aliases; reset the
-        single-row scrape/redirect state when it's Minecraft (the only game that
-        uses them). Returns the number of articles deleted."""
+        """Delete a game's stored articles + redirect aliases and reset its
+        per-game scrape/redirect resume state. Returns the article count deleted."""
         n = self._articles_repo.delete_by_game(game.id) if self._articles_repo else 0
         if self._redirects_repo is not None:
             self._redirects_repo.delete_by_game(game.id)
-        if game.name == "Minecraft":
-            if self._scrape_state_repo is not None:
-                self._scrape_state_repo.save(ScrapeState(None, 0, None))
-            if self._redirect_state_repo is not None:
-                self._redirect_state_repo.save(RedirectState(None, 0))
+        if self._scrape_state_repo is not None:
+            self._scrape_state_repo.save(ScrapeState(None, 0, None), game.id)
+        if self._redirect_state_repo is not None:
+            self._redirect_state_repo.save(RedirectState(None, 0), game.id)
         return n
 
     def _on_clear_guides(self):
@@ -1220,18 +1232,16 @@ class OverlayWindow(QWidget):
             self.guides_status.setText("")
             return
         game = self._guides_target_game()
-        n = self._articles_repo.count(game_id=(game.id if game is not None else None))
+        gid = game.id if game is not None else None
+        n = self._articles_repo.count(game_id=gid)
         articles_done = True
         redirects_done = True
-        # The resume-token state tracks Minecraft's full-wiki walk, so it only
-        # describes Minecraft; other games just show their stored count.
-        if game is not None and game.name == "Minecraft":
-            if self._scrape_state_repo is not None:
-                articles_done = (self._scrape_state_repo.load().continue_token is None
-                                 and n > 0)
-            if self._redirect_state_repo is not None:
-                rs = self._redirect_state_repo.load()
-                redirects_done = rs.continue_token is None and rs.done > 0
+        if gid is not None and self._scrape_state_repo is not None:
+            articles_done = (self._scrape_state_repo.load(gid).continue_token is None
+                             and n > 0)
+        if gid is not None and self._redirect_state_repo is not None:
+            rs = self._redirect_state_repo.load(gid)
+            redirects_done = rs.continue_token is None and rs.done > 0
         self.guides_status.setText(
             guides_status_text(n, articles_done, redirects_done)
         )

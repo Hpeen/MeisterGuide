@@ -12,13 +12,13 @@ def run_redirect_ingest(client, redirects_repo, articles_repo, state_repo, conn,
     articles (other namespaces, or unresolved double redirects) are skipped.
     Resumes from the saved token; restarts once if the token is rejected as
     stale (add_redirect is idempotent, so stored aliases are skipped)."""
-    st = state_repo.load()
+    st = state_repo.load(game_id)
     try:
         _walk(st.continue_token, st.done, client, redirects_repo, articles_repo,
               state_repo, conn, progress_cb, should_cancel, game_id)
     except InvalidContinueError:
-        restart_done = redirects_repo.count()
-        state_repo.save(RedirectState(None, restart_done))
+        restart_done = redirects_repo.count_by_game(game_id)
+        state_repo.save(RedirectState(None, restart_done), game_id)
         _walk(None, restart_done, client, redirects_repo, articles_repo,
               state_repo, conn, progress_cb, should_cancel, game_id)
 
@@ -35,10 +35,10 @@ def _walk(token, done, client, redirects_repo, articles_repo, state_repo, conn,
             if redirects_repo.add_redirect(from_title, target_pageid,
                                            game_id=game_id, commit=False):
                 done += 1
-        state_repo.save(RedirectState(next_token, done), commit=False)
+        state_repo.save(RedirectState(next_token, done), game_id, commit=False)
         conn.commit()
         if progress_cb:
             progress_cb(done)
 
     # Reached the end: clear the resume token, keep the final count.
-    state_repo.save(RedirectState(None, done))
+    state_repo.save(RedirectState(None, done), game_id)

@@ -20,6 +20,8 @@ class FakeClient:
 def _setup(tmp_path):
     conn = connect(tmp_path / "i.db")
     init_db(conn)
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (1,'T','[]')")
+    conn.commit()
     return conn, ArticlesRepo(conn), ScrapeStateRepo(conn)
 
 
@@ -31,10 +33,10 @@ def test_run_ingest_populates_db_and_reports_progress(tmp_path):
     ]
     seen = []
     run_ingest(FakeClient(batches), arts, state, conn,
-               progress_cb=lambda d, t: seen.append((d, t)))
+               progress_cb=lambda d, t: seen.append((d, t)), game_id=1)
     assert arts.count() == 3
     assert seen[-1][0] == 3                 # done count reached total articles
-    assert state.load().continue_token is None   # finished -> token cleared
+    assert state.load(1).continue_token is None   # finished -> token cleared
 
 
 def test_run_ingest_skips_noise_pages(tmp_path):
@@ -44,7 +46,7 @@ def test_run_ingest_skips_noise_pages(tmp_path):
           WikiArticle(2, "Java Edition 1.20", "changelog", 1),
           WikiArticle(3, "Spider", "a spider", 1)], None),
     ]
-    run_ingest(FakeClient(batches), arts, state, conn)
+    run_ingest(FakeClient(batches), arts, state, conn, game_id=1)
     assert arts.count() == 2                  # the versioned changelog page is skipped
     assert arts.get_article(2) is None        # "Java Edition 1.20" not stored
     assert arts.get_article(1) is not None    # "Creeper" kept
@@ -54,9 +56,9 @@ def test_run_ingest_skips_noise_pages(tmp_path):
 def test_run_ingest_resumes_from_saved_token(tmp_path):
     conn, arts, state = _setup(tmp_path)
     from meister_guide.scraper.ingest import ScrapeState  # re-exported
-    state.save(ScrapeState(continue_token="tok1", done=2, total=3))
+    state.save(ScrapeState(continue_token="tok1", done=2, total=3), 1)
     client = FakeClient([([WikiArticle(3, "C", "g", 1)], None)])
-    run_ingest(client, arts, state, conn)
+    run_ingest(client, arts, state, conn, game_id=1)
     assert client.started_with == "tok1"    # resumed, not restarted
 
 
@@ -66,16 +68,16 @@ def test_run_ingest_stops_when_cancelled(tmp_path):
         ([WikiArticle(1, "A", "a", 1)], "tok1"),
         ([WikiArticle(2, "B", "b", 1)], None),
     ]
-    run_ingest(FakeClient(batches), arts, state, conn, should_cancel=lambda: True)
+    run_ingest(FakeClient(batches), arts, state, conn, should_cancel=lambda: True, game_id=1)
     assert arts.count() == 0                 # cancelled before first batch committed
-    assert state.load().continue_token is None  # resume position left untouched
+    assert state.load(1).continue_token is None  # resume position left untouched
 
 
 def test_run_ingest_recovers_from_stale_continue_token(tmp_path):
     from meister_guide.scraper.wiki_client import InvalidContinueError
     from meister_guide.scraper.ingest import ScrapeState
     conn, arts, state = _setup(tmp_path)
-    state.save(ScrapeState(continue_token="STALE", done=7, total=2))
+    state.save(ScrapeState(continue_token="STALE", done=7, total=2), 1)
 
     class StaleTokenClient:
         def __init__(self):
@@ -89,10 +91,10 @@ def test_run_ingest_recovers_from_stale_continue_token(tmp_path):
             return 2
 
     client = StaleTokenClient()
-    run_ingest(client, arts, state, conn)
+    run_ingest(client, arts, state, conn, game_id=1)
     assert client.tokens == ["STALE", None]      # tried stale, then restarted clean
     assert arts.count() == 2
-    assert state.load().continue_token is None
+    assert state.load(1).continue_token is None
 
 
 def test_run_ingest_tags_articles_with_game_id(tmp_path):
@@ -102,3 +104,36 @@ def test_run_ingest_tags_articles_with_game_id(tmp_path):
     batches = [([WikiArticle(1, "Creeper", "a creeper", 1)], None)]
     run_ingest(FakeClient(batches), arts, state, conn, game_id=42)
     assert conn.execute("SELECT game_id FROM articles WHERE pageid=1").fetchone()[0] == 42
+
+
+def test_run_ingest_builds_urls_from_base(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    batches = [([WikiArticle(1, "Reaper Leviathan", "big", 1)], None)]
+    run_ingest(FakeClient(batches), arts, state, conn, game_id=1,
+               base="https://subnautica.fandom.com")
+    url = conn.execute("SELECT url FROM articles WHERE pageid=1").fetchone()[0]
+    assert url == "https://subnautica.fandom.com/wiki/Reaper_Leviathan"
+
+
+def test_run_ingest_uses_total_override_without_calling_count(tmp_path):
+    conn, arts, state = _setup(tmp_path)
+    class NoCountClient(FakeClient):
+        def article_count(self):
+            raise AssertionError("article_count must not be called when total is given")
+    seen = []
+    run_ingest(NoCountClient([([WikiArticle(1, "A", "a", 1)], None)]),
+               arts, state, conn, game_id=1, total=42,
+               progress_cb=lambda d, t: seen.append((d, t)))
+    assert seen[-1][1] == 42
+
+
+def test_run_ingest_caller_total_wins_over_saved_on_resume(tmp_path):
+    from meister_guide.scraper.ingest import ScrapeState
+    conn, arts, state = _setup(tmp_path)
+    # A prior run saved a total of 99; a fresh resume passes total=42 explicitly.
+    state.save(ScrapeState(continue_token=None, done=1, total=99), 1)
+    seen = []
+    run_ingest(FakeClient([([WikiArticle(2, "B", "b", 1)], None)]),
+               arts, state, conn, game_id=1, total=42,
+               progress_cb=lambda d, t: seen.append((d, t)))
+    assert seen[-1][1] == 42        # caller's total wins, not the saved 99

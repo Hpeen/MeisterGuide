@@ -49,3 +49,24 @@ def test_worker_emits_error_on_failure(tmp_path):
     worker.run()
     assert finished == []
     assert errors and "kaboom" in errors[0]
+
+
+def test_worker_uses_api_url_and_emits_counted(tmp_path):
+    QApplication.instance() or QApplication([])
+    db = tmp_path / "c.db"
+    conn = connect(db); init_db(conn)
+    conn.execute("INSERT INTO games (id, name, process_names) VALUES (5,'G','[]')")
+    conn.commit(); conn.close()
+
+    client = FakeClient([([WikiArticle(1, "A", "a", 1)], None)])
+    worker = IngestWorker(str(db), game_id=5, api_url="https://x/api.php",
+                          page_url_base="https://x", client=client)
+    counted, finished = [], []
+    worker.counted.connect(lambda n: counted.append(n))
+    worker.finished.connect(lambda: finished.append(True))
+    worker.run()
+    assert counted == [2]
+    assert finished == [True]
+    conn = connect(db); init_db(conn)
+    url = conn.execute("SELECT url FROM articles WHERE pageid=1").fetchone()[0]
+    assert url == "https://x/wiki/A"

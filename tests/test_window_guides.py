@@ -54,13 +54,15 @@ def test_guides_picker_lists_all_games():
 
 def test_picker_drives_update_target_not_detection():
     QApplication.instance() or QApplication([])
-    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(),
+                      ":memory:")
+    started = []
+    w._start_ingest = lambda game: started.append(game)
     # Pick Subnautica in the Wiki tab regardless of the detected/active game.
     w.guides_game.setCurrentIndex(w.guides_game.findText("Subnautica"))
     w._on_update_guides()
-    assert w._ingest_thread is None        # no Minecraft download started
-    assert "Subnautica" in w.guides_status.text()
-    assert "Seed guides" in w.guides_status.text()
+    # Subnautica has a wiki URL, so _start_ingest is called for it (not Minecraft)
+    assert len(started) == 1 and started[0].name == "Subnautica"
 
 
 def test_active_game_change_syncs_the_picker():
@@ -68,3 +70,39 @@ def test_active_game_change_syncs_the_picker():
     w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(), ":memory:")
     w._on_manual_pick_game(2)              # detection/manual switch to Subnautica
     assert w.guides_game.currentData() == 2
+
+
+def test_update_starts_for_any_game_with_wiki_url():
+    QApplication.instance() or QApplication([])
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(),
+                      ":memory:")
+    started = []
+    w._start_ingest = lambda game: started.append(game)
+    w.guides_game.setCurrentIndex(w.guides_game.findText("Subnautica"))
+    w._on_update_guides()
+    assert len(started) == 1 and started[0].name == "Subnautica"
+
+
+def test_update_refuses_game_without_wiki_url():
+    QApplication.instance() or QApplication([])
+    games = [Game(id=1, name="Minecraft", process_names=[], wiki_url="https://minecraft.wiki"),
+             Game(id=3, name="NoWiki", process_names=[], wiki_url=None)]
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), games, StubRepo(), ":memory:")
+    started = []
+    w._start_ingest = lambda game: started.append(game)
+    w.guides_game.setCurrentIndex(w.guides_game.findText("NoWiki"))
+    w._on_update_guides()
+    assert started == []
+    assert "wiki URL" in w.guides_status.text()
+
+
+def test_counted_handler_shows_estimate():
+    QApplication.instance() or QApplication([])
+    w = OverlayWindow(QSettings("MeisterGuide", "T"), _two_games(), StubRepo(),
+                      ":memory:")
+    w._ingest_game_name = "Subnautica"   # set by _start_ingest in real use
+    w._on_ingest_counted(6200)
+    assert "6,200 pages" in w.guides_status.text()
+    assert "Subnautica" in w.guides_status.text()
+    w._on_ingest_counted(140000)
+    assert "while" in w.guides_status.text().lower()

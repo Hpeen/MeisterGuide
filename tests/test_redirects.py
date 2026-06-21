@@ -58,10 +58,10 @@ def test_search_ranked_resolves_redirect_alias_to_target_article(tmp_path):
 
 def test_redirect_state_defaults_then_persists(tmp_path):
     repo = RedirectStateRepo(_conn(tmp_path))
-    st = repo.load()
+    st = repo.load(1)
     assert st.continue_token is None and st.done == 0
-    repo.save(RedirectState(continue_token='{"apcontinue":"Boat"}', done=12))
-    again = repo.load()
+    repo.save(RedirectState(continue_token='{"apcontinue":"Boat"}', done=12), 1)
+    again = repo.load(1)
     assert again.continue_token == '{"apcontinue":"Boat"}' and again.done == 12
-    repo.save(RedirectState(continue_token=None, done=50))
-    assert repo.load().continue_token is None and repo.load().done == 50
+    repo.save(RedirectState(continue_token=None, done=50), 1)
+    assert repo.load(1).continue_token is None and repo.load(1).done == 50
