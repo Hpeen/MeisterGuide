@@ -7,9 +7,10 @@ stated honestly from the resume-token state, not implied by a full progress bar.
 def guides_status_text(article_count: int, articles_done: bool,
                        redirects_done: bool) -> str:
     if article_count <= 0:
-        return "No guides yet — click Update guides"
+        return "No guides downloaded yet."
     if not articles_done:
-        return f"Incomplete — {article_count:,} downloaded · click Update to resume"
+        return (f"Partly downloaded: {article_count:,} guides so far. "
+                "Click Update to finish.")
     if not redirects_done:
-        return "Almost done — click Update to link related topics"
-    return f"Complete · {article_count:,} articles"
+        return "Almost done. Click Update to link related topics."
+    return f"All set: {article_count:,} guides."

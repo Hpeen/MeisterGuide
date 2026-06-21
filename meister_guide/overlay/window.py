@@ -260,7 +260,7 @@ class OverlayWindow(QWidget):
         mode = (self._settings_repo.chat_backend()
                 if self._settings_repo is not None else BACKEND_AUTO)
 
-        chain, reason = [], "AI chat is unavailable."
+        chain, reason = [], "AI chat isn't set up yet. Add a Claude API key or install Ollama in Settings."
         if mode == BACKEND_CLAUDE:
             attempt, reason = self._claude_attempt()
             if attempt:
@@ -306,7 +306,7 @@ class OverlayWindow(QWidget):
         """Returns ((client, model, "local"), None) if Ollama is reachable with a
         model installed, else (None, reason)."""
         if self._ollama is None:
-            return None, "AI chat is unavailable."
+            return None, "AI chat isn't set up yet. Add a Claude API key or install Ollama in Settings."
         try:
             models = self._ollama.list_model_info()
         except OllamaUnavailable:
@@ -329,7 +329,7 @@ class OverlayWindow(QWidget):
 
     def _guides_note(self):
         if self._articles_repo is not None and self._articles_repo.count() == 0:
-            return "  (No guides loaded yet — run Update guides for better answers.)"
+            return "  (No guides downloaded yet. Click Update for better answers.)"
         return ""
 
     def _set_chat_enabled(self, enabled, status):
@@ -577,7 +577,7 @@ class OverlayWindow(QWidget):
             self._attempt += 1
             _client, model, _label = self._backend_chain[self._attempt]
             self.chat_status.setText(
-                f"Online backend unavailable — answering locally with {model}.")
+                f"Online backend unavailable. Answering locally with {model}.")
             self._start_chat_worker()
             return
 
@@ -697,16 +697,39 @@ class OverlayWindow(QWidget):
         col.addLayout(bar)
 
         self._refresh_guides_status()
+        self._refresh_update_button()
         return page
+
+    def _guides_target_game(self):
+        """The game the Wiki tab's Update button acts on: the active game, or the
+        seeded Minecraft fallback before detection has picked one."""
+        if self.active_game is not None:
+            return self.active_game
+        return next((g for g in self._games if g.name == "Minecraft"), None)
+
+    def _refresh_update_button(self):
+        """Name the active game on the Update button so it's clear whose guides a
+        download touches."""
+        if not hasattr(self, "guides_update_btn"):
+            return
+        game = self._guides_target_game()
+        self.guides_update_btn.setText(
+            f"Update {game.name} guides" if game is not None else "Update guides")
 
     def _on_update_guides(self):
         if self._db_path is None or self._ingest_thread is not None:
             return
-        if self.active_game is not None and self.active_game.name != "Minecraft":
-            # SP1: only Minecraft has a wired bulk corpus; other games fill on-demand later.
-            self.guides_status.setText("On-demand updates for this game are coming soon")
+        game = self._guides_target_game()
+        if game is None or game.name != "Minecraft":
+            # Only Minecraft has a wired full-wiki download; other games fill in
+            # from on-demand fetch and seeding.
+            who = game.name if game is not None else "this game"
+            self.guides_status.setText(
+                f"Full guide downloads aren't ready for {who} yet. Ask Meister a "
+                f"question to pull pages as you need them, or use 'Seed guides "
+                f"from a category' in Settings.")
             return
-        mc_id = next((g.id for g in self._games if g.name == "Minecraft"), None)
+        mc_id = game.id
         self.guides_update_btn.setEnabled(False)
         self.guides_progress.setVisible(True)
         self.guides_progress.setRange(0, 0)  # indeterminate until first progress
@@ -778,9 +801,9 @@ class OverlayWindow(QWidget):
             # --- chat backend ---
             col.addWidget(QLabel("<b>AI chat backend</b>"))
             self.set_backend = QComboBox()
-            self.set_backend.addItem("Auto — online when possible, offline backup", BACKEND_AUTO)
+            self.set_backend.addItem("Auto (online when possible, offline backup)", BACKEND_AUTO)
             self.set_backend.addItem("Always online (Claude)", BACKEND_CLAUDE)
-            self.set_backend.addItem("Always local (Ollama) — offline & private", BACKEND_OLLAMA)
+            self.set_backend.addItem("Always local (Ollama, offline and private)", BACKEND_OLLAMA)
             idx = self.set_backend.findData(self._settings_repo.chat_backend())
             if idx >= 0:
                 self.set_backend.setCurrentIndex(idx)
@@ -789,7 +812,7 @@ class OverlayWindow(QWidget):
             col.addWidget(QLabel("Claude API key"))
             self.set_api_key = QLineEdit(self._settings_repo.claude_api_key())
             self.set_api_key.setEchoMode(QLineEdit.Password)
-            self.set_api_key.setPlaceholderText("sk-ant-…  (stored locally; only used for the Claude backend)")
+            self.set_api_key.setPlaceholderText("sk-ant-…  (stored on your device, used only for Claude)")
             col.addWidget(self.set_api_key)
 
             col.addWidget(QLabel("Claude model"))
@@ -805,7 +828,7 @@ class OverlayWindow(QWidget):
             self.set_brave_key = QLineEdit(self._settings_repo.brave_api_key())
             self.set_brave_key.setEchoMode(QLineEdit.Password)
             self.set_brave_key.setPlaceholderText(
-                "brv-…  optional — leave blank to use free DuckDuckGo")
+                "brv-…  (optional; blank uses free DuckDuckGo search)")
             col.addWidget(self.set_brave_key)
             self.set_web_fallback = QCheckBox("Allow web search fallback")
             self.set_web_fallback.setChecked(
@@ -922,7 +945,7 @@ class OverlayWindow(QWidget):
             self.hotkey_chip.setText(spec)
         self.set_hotkey_status.setText(
             f"Hotkey set to {spec}." if applied else
-            f"Saved {spec}, but the OS rejected it (already in use?) — it'll apply next launch.")
+            f"Saved {spec}, but Windows rejected it (already in use?). It'll apply next launch.")
 
     def _on_add_game(self):
         if self._games_repo is None:
@@ -968,7 +991,7 @@ class OverlayWindow(QWidget):
             return
         api_url = api_url_for(game.wiki_url)
         if not api_url:
-            self.seed_status.setText("This game has no wiki URL — add one first.")
+            self.seed_status.setText("This game has no wiki URL yet. Add one in Settings first.")
             return
         self.seed_btn.setEnabled(False)
         self.seed_progress.setVisible(True)
@@ -1215,6 +1238,7 @@ class OverlayWindow(QWidget):
         self._rebuild_game_menu()
         self._refresh_seed_games()
         self._refresh_manage_games()
+        self._refresh_update_button()
 
     def _active_game_id(self):
         if self.active_game is not None:
@@ -1229,6 +1253,11 @@ class OverlayWindow(QWidget):
     def _set_active(self, game, manual: bool):
         self.active_game = game
         self._update_game_pill()
+        # Keep the Wiki tab pointed at the now-active game: its guide count and
+        # the Update button must reflect the switch, not whatever was active before.
+        self._refresh_update_button()
+        if hasattr(self, "guides_status"):
+            self._refresh_guides_status()
 
     def set_detected_game(self, game):
         """Called by the detector. A detection always wins over a manual pick."""
