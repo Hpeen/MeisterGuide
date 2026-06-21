@@ -94,3 +94,31 @@ def test_footer_web_augmented_when_only_web_fallback_on(tmp_path):
     repo.set("web_fallback", "1")              # but web fallback on (default)
     w._refresh_footer()
     assert "web-augmented" in w.footer_note.text().lower()
+
+
+class _FakeWorker:
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def test_hide_does_not_cancel_bulk_ingest(tmp_path):
+    # Hiding the overlay (to go back to the game) must NOT stop the long-running
+    # guide download — it runs in the background and only stops on app quit.
+    from PySide6.QtGui import QHideEvent
+    w, repo = _window(tmp_path)
+    fw = _FakeWorker()
+    w._ingest_worker = fw
+    w.hideEvent(QHideEvent())
+    assert fw.cancelled is False
+
+
+def test_shutdown_cancels_bulk_ingest(tmp_path):
+    # On real app quit the download must be cancelled and torn down.
+    w, repo = _window(tmp_path)
+    fw = _FakeWorker()
+    w._ingest_worker = fw
+    w.shutdown()
+    assert fw.cancelled is True

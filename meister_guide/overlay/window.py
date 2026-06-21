@@ -1322,9 +1322,13 @@ class OverlayWindow(QWidget):
 
     def hideEvent(self, event):
         # Covers Alt+Insert and the tray toggle — all routes that hide the
-        # overlay restore the game.
-        if self._ingest_worker is not None:
-            self._ingest_worker.cancel()
+        # overlay restore the game. The bulk guide download is deliberately NOT
+        # cancelled here: it's a long-running background job meant to keep filling
+        # the corpus while you play, and it's torn down cleanly on app quit via
+        # shutdown(). Cancelling it on hide both stopped the download and orphaned
+        # the worker (it returns before emitting finished, so teardown never ran),
+        # leaving the Update button dead on the next open. The interactive workers
+        # below are tied to a visible request, so they still cancel on hide.
         if self._chat_worker is not None:
             self._chat_cancelled = True
             self._chat_worker.cancel()
