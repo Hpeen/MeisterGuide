@@ -7,3 +7,7 @@ dist/
 *.spec
 !MeisterGuide.spec
 meister.db
+
+# Local launch point (build copies the 78MB exe here) and design scratch
+/Launch from here/
+/Meister Guide overlay design/
