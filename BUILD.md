@@ -1,5 +1,13 @@
 # Building MeisterGuide.exe
 
+## Run from source
+1. Install Python 3.11 or newer.
+2. `python -m venv .venv && .venv\Scripts\activate`
+3. `pip install -r requirements.txt`
+4. `python -m meister_guide.main`
+
+Run the tests with `pytest -q`.
+
 ## Prerequisites
 - Python 3 with the runtime deps installed (`py -m pip install -r requirements.txt`).
 - Build deps: `py -m pip install -r requirements-build.txt`.
