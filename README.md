@@ -21,11 +21,10 @@ The browser demo is just a preview, it doesn't have AI capabilities.
 
 - Floats over your game with a global hotkey (Alt + Insert), even when the game has
   grabbed your keyboard.
-- Answers come from the game's wiki with a web fallback, and every claim links back
-  to the page it came from.
-- Three places to look, in order: your offline guides, the live wiki, then a web
-  search as a last resort.
-- Online out of the box (wiki + DuckDuckGo, no account or key for web search), and
+- Answers come from the game's wiki with a web fallback, and every claim links a source.
+- Three places to look: your offline guides, the live wiki and then a web
+  search.
+- Online out of the box (wiki + DuckDuckGo, no account or key for web search) and
   works offline once you've downloaded guides.
 - Handles more than one game, with a built-in wiki reader for browsing guides on
   their own.
@@ -55,17 +54,18 @@ and the process name (ex: `Subnautica.exe`).
 
 ## How it works
 
-When you ask something, Meister checks three sources in order: the guides you've
-downloaded offline, the game's wiki fetched live for your question, and a plain web
-search as a last resort. The first two cover most questions; the web search is the
-safety net so you rarely get nothing back.
+Ask Meister something and it checks  the guides you've already downloaded.
+If those come up short, it grabs the game's wiki live for exactly what you asked.
+IF even that draws a blank, there's a plain web search waiting at the bottom. 
+You almost never walk away with nothing!
 
-Fetching wiki text turned out to be the tricky part. minecraft.wiki exposes a clean
-plain-text API, but most Fandom wikis don't have that extension installed, so the
-same request comes back empty. Meister checks each wiki once for that capability and
-caches the answer. If the plain-text API is missing, it asks for the rendered HTML
-instead and runs it through trafilatura to pull out the article body. Same pipeline
-either way, so adding a Fandom game just works.
+Getting the text out of those wikis was the annoying part. minecraft.wiki is polite
+about it and hands over clean plain text. Most Fandom wikis are not so polite... They
+don't have that extension installed, so the same request comes back empty.
+Meister pokes each wiki once to see what it's dealing with, remembers the answer,
+and never asks twice. No plain-text API? No problem. It grabs the full rendered page
+instead and lets trafilatura dig the real article out of the HTML. Either way you
+land in the same spot, which is why adding a new Fandom game just works.
 
 ## Build it yourself / run from source
 
