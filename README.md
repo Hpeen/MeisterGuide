@@ -11,12 +11,11 @@ once you've downloaded guides.
 
 ## Try it
 
-**Demo in your browser (no install):** <https://hpeen.github.io/MeisterGuide/>
+**Demo in your browser :** <https://hpeen.github.io/MeisterGuide/>
 
 **Download for Windows:** <https://github.com/Hpeen/MeisterGuide/releases>
 
-The browser demo is a self-contained preview. The live AI and wiki fetching run in
-the downloadable Windows app.
+The browser demo is just a preview, it doesn't have AI capabilities.
 
 ## Features
 
