@@ -6,11 +6,20 @@ stuck on. It pulls answers from the game's wiki and the web and shows you the
 sources it used. It also has a wiki reader built in and works across more than one
 game. Windows desktop app, written in Python with PySide6.
 
+**Try it in your browser first (no install, no download):**
+👉 **<https://hpeen.github.io/MeisterGuide/>**
+
+That's a self-contained demo of the overlay with Minecraft and Subnautica content,
+a working wiki reader, and pre-baked Ask Meister answers so you can feel how it works
+before installing anything. The real app below does the live AI and wiki fetching.
+
 ---
 
 ## Quick start (just want to try it)
 
-1. Download `MeisterGuide.exe`.
+1. Download `MeisterGuide.exe` from the
+   [Releases page](https://github.com/Hpeen/MeisterGuide/releases) (or build it
+   yourself, see the bottom of this file).
 2. Double-click to run it. Windows may show a blue "Windows protected your PC" box,
    since the app isn't signed. Click **More info**, then **Run anyway**.
 3. The app sits in your system tray, near the clock. Nothing opens on screen at
