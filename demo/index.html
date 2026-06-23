@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meister Guide — in-game companion overlay</title>
+<meta name="description" content="A rustic in-game companion overlay for PC games. Ask Meister about whatever you're stuck on; it pulls answers from the game's wiki and the web and shows its sources. Interactive preview.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Archivo:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --walnut-base:#1a110b; --brass-bright:#e0bd66; --brass-mid:#c8a14a; --brass-dark:#b8923f;
+    --parchment:#e8dcc6; --parchment-mid:#d8cbb0; --parchment-dim:#b8a988; --parchment-muted:#a89878;
+    --parchment-ghost:#9c8a66; --ink-dim:#7a6a4f; --green:#8fd058;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;min-height:100%;}
+  body{
+    font-family:'Archivo',system-ui,sans-serif; color:var(--parchment);
+    background:radial-gradient(120% 90% at 80% 0%, #1a120b 0%, #0d0905 55%, #070504 100%);
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  a{color:inherit;}
+
+  /* faint "game behind the overlay" scene, right side, desktop only */
+  .scene{position:fixed; inset:0; overflow:hidden; pointer-events:none; opacity:.5;
+    -webkit-mask-image:linear-gradient(90deg, transparent 40%, #000 78%);
+            mask-image:linear-gradient(90deg, transparent 40%, #000 78%);}
+  .scene .sky{position:absolute; inset:0; background:linear-gradient(180deg,#5d86a8 0%,#86a8c0 42%,#9bb6bf 56%,#6f8f4a 56%,#5a6e3a 100%);}
+  .scene .sun{position:absolute; top:9%; right:14%; width:64px; height:64px; background:#fdf6d8; box-shadow:0 0 0 8px rgba(253,246,216,.2);}
+  .scene .cloud{position:absolute; top:15%; left:48%; width:120px; height:24px; background:#fff; opacity:.6; box-shadow:30px 14px 0 #fff, 64px -8px 0 #fff;}
+  .scene .ground{position:absolute; bottom:0; left:0; right:0; height:42%;
+    background:linear-gradient(180deg,#79a350 0 16px,#6b8f43 16px 28px,#6b4a2a 28px);
+    background-image:linear-gradient(180deg,#79a350 0 16px,#6b8f43 16px 28px,#6b4a2a 28px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.10) 0 1px, transparent 1px 54px);}
+  /* underwater scene for Subnautica */
+  .scene .sea{position:absolute; inset:0; display:none; background:linear-gradient(180deg,#1d7390 0%,#0f4f6b 44%,#063042 100%);}
+  .scene .sea::after{content:""; position:absolute; inset:0; opacity:.5;
+    background:repeating-linear-gradient(72deg, rgba(180,230,245,.10) 0 2px, transparent 2px 26px);}
+  body.subnautica .scene .sky, body.subnautica .scene .sun,
+  body.subnautica .scene .cloud, body.subnautica .scene .ground{display:none;}
+  body.subnautica .scene .sea{display:block;}
+
+  /* game switcher */
+  .switcher{position:relative;}
+  .caretdown{font-size:8px; opacity:.7; margin-left:2px;}
+  button.pill{cursor:pointer; transition:all .15s;}
+  button.pill.live:hover{border-color:rgba(120,170,90,.7); background:rgba(80,130,60,.22);}
+  .gamemenu{position:absolute; top:28px; left:0; z-index:6; min-width:200px; background:#1c130c;
+    border:1px solid rgba(200,161,74,.3); border-radius:9px; padding:5px; box-shadow:0 14px 34px rgba(0,0,0,.55);
+    display:none; flex-direction:column; gap:2px;}
+  .gamemenu.open{display:flex;}
+  .gi{display:flex; align-items:center; gap:9px; width:100%; text-align:left; padding:8px 10px; border-radius:6px;
+    border:none; background:transparent; color:var(--parchment-mid); font-family:'Archivo'; font-size:13px; cursor:pointer; transition:all .12s;}
+  .gi:hover{background:rgba(200,161,74,.08); color:var(--parchment);}
+  .gi .gn{flex:1;}
+  .gi .gd{font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--parchment-ghost);}
+  .gi.sel{color:#f0e6cf;}
+  .gi.sel .gn::before{content:"✓ "; color:var(--brass-mid);}
+
+  .stage{position:relative; z-index:1; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    gap:54px; padding:48px 40px; flex-wrap:wrap;}
+
+  /* ---- left pitch column ---- */
+  .pitch{max-width:430px; flex:1 1 360px;}
+  .brand{display:flex; align-items:baseline; gap:11px; margin-bottom:6px;}
+  .brand .word{font-family:'Pirata One',serif; font-size:54px; line-height:1; color:var(--brass-bright);
+    text-shadow:0 1px 0 rgba(0,0,0,.5), 0 0 18px rgba(224,189,102,.18);}
+  .brand .sub{font-family:'Spline Sans Mono',monospace; font-size:13px; letter-spacing:.42em; color:var(--parchment-ghost); text-transform:uppercase;}
+  .tagline{font-size:20px; font-weight:600; color:var(--parchment); margin:14px 0 10px; line-height:1.3;}
+  .lede{font-size:15px; line-height:1.65; color:var(--parchment-muted); margin:0 0 22px;}
+  .feats{list-style:none; padding:0; margin:0 0 26px; display:flex; flex-direction:column; gap:11px;}
+  .feats li{position:relative; padding-left:24px; font-size:14px; line-height:1.5; color:var(--parchment-mid);}
+  .feats li::before{content:""; position:absolute; left:4px; top:7px; width:7px; height:7px; border-radius:50%;
+    background:var(--brass-mid); box-shadow:0 0 8px rgba(200,161,74,.4);}
+  .cta{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:18px;}
+  .btn{display:inline-flex; align-items:center; gap:9px; padding:12px 20px; border-radius:10px;
+    border:1px solid #6b5326; background:linear-gradient(180deg,#c8a14a,#8a6d2e); color:#2a1a0c;
+    font-family:'Archivo'; font-size:14px; font-weight:700; text-decoration:none; cursor:pointer;
+    box-shadow:inset 0 1px 0 rgba(255,235,180,.5); transition:filter .15s;}
+  .btn:hover{filter:brightness(1.08);}
+  .btn svg{width:17px; height:17px;}
+  .link{font-family:'Spline Sans Mono',monospace; font-size:13px; color:var(--brass-mid); text-decoration:none; border-bottom:1px solid rgba(200,161,74,.3); padding-bottom:1px;}
+  .link:hover{color:var(--brass-bright);}
+  .preview-note{font-family:'Spline Sans Mono',monospace; font-size:12px; line-height:1.55; color:var(--ink-dim);
+    border-left:2px solid rgba(200,161,74,.3); padding-left:12px; margin-top:4px;}
+  .preview-note b{color:var(--parchment-dim); font-weight:500;}
+
+  /* ---- right: the journal panel ---- */
+  .panel-wrap{flex:0 0 auto;}
+  .panel{width:432px; height:706px; max-height:82vh; display:flex; filter:drop-shadow(0 30px 60px rgba(0,0,0,.55));}
+  .spine{width:30px; flex:none; border-radius:13px 0 0 13px; position:relative; overflow:hidden;
+    background:linear-gradient(180deg,#8a4423,#6e3318 50%,#7a3a1e);
+    box-shadow:inset -2px 0 5px rgba(0,0,0,.45), inset 2px 0 0 rgba(255,170,120,.18);}
+  .spine .stitch{position:absolute; top:14px; bottom:14px; left:50%; transform:translateX(-50%); width:2px;
+    background:repeating-linear-gradient(180deg, rgba(247,224,190,.45) 0 7px, transparent 7px 15px);}
+  .spine .stud{position:absolute; left:50%; transform:translateX(-50%); width:8px; height:8px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ffe7a6, #b8923f 55%, #6b4f1d);}
+  .spine .stud.top{top:18px;} .spine .stud.bot{bottom:18px;}
+  .body{flex:1; min-width:0; border-radius:0 13px 13px 0; display:flex; flex-direction:column; overflow:hidden; position:relative;
+    background:
+      linear-gradient(180deg, rgba(255,200,140,.05), transparent 9%, transparent 91%, rgba(0,0,0,.32)),
+      repeating-linear-gradient(90deg, rgba(86,60,38,.11) 0px, rgba(86,60,38,.11) 1px, transparent 1px, transparent 6px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.22) 0px, rgba(0,0,0,.22) 1px, transparent 1px, transparent 13px),
+      repeating-linear-gradient(90deg, rgba(128,86,48,.06) 0px, rgba(128,86,48,.06) 2px, transparent 2px, transparent 23px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.13) 0px, rgba(0,0,0,.13) 1px, transparent 1px, transparent 37px),
+      linear-gradient(102deg,#251810 0%,#1a110b 55%,#1f150d 100%);
+    box-shadow:inset 0 1px 0 rgba(255,225,160,.08), inset 1px 0 0 rgba(0,0,0,.4);}
+
+  ::-webkit-scrollbar{width:8px;} ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#4a3320; border-radius:6px;}
+
+  .hdr{flex:none; padding:18px 20px 14px; border-bottom:1px solid rgba(200,161,74,.2); box-shadow:inset 0 -1px 0 rgba(0,0,0,.4);}
+  .hdr-row{display:flex; align-items:center; gap:10px;}
+  .hdr .name{font-family:'Pirata One',serif; font-size:30px; line-height:1; color:var(--brass-bright); text-shadow:0 1px 0 rgba(0,0,0,.5), 0 0 12px rgba(224,189,102,.18);}
+  .hdr .name-sub{font-family:'Spline Sans Mono',monospace; font-size:11px; letter-spacing:.4em; color:var(--parchment-ghost); text-transform:uppercase; padding-top:7px;}
+  .grow{flex:1;}
+  .chip{font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.04em; padding:4px 8px; border-radius:6px;}
+  .chip.key{color:var(--parchment-ghost); border:1px solid rgba(200,161,74,.22);}
+  .xbtn{width:28px; height:28px; border-radius:7px; border:1px solid rgba(200,161,74,.25); background:rgba(0,0,0,.25); color:var(--parchment-dim); cursor:pointer; font-size:13px; transition:all .15s;}
+  .xbtn:hover{background:rgba(122,58,30,.5); color:#f3e8cd; border-color:rgba(200,110,70,.5);}
+  .pills{display:flex; gap:7px; margin-top:11px; flex-wrap:wrap;}
+  .pill{display:inline-flex; align-items:center; gap:6px; font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.06em; padding:4px 9px; border-radius:6px;}
+  .pill.live{border:1px solid rgba(120,170,90,.4); background:rgba(80,130,60,.14); color:#a8d27a;}
+  .pill.info{border:1px solid rgba(200,161,74,.25); background:rgba(0,0,0,.2); color:var(--parchment-dim);}
+  .dot{width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 7px var(--green);}
+
+  .tabs{flex:none; display:flex; gap:4px; padding:12px 16px 0;}
+  .tab{position:relative; flex:1; padding:10px; border:none; background:transparent; cursor:pointer; font-family:'Archivo'; font-size:13px; font-weight:600; letter-spacing:.02em; color:var(--parchment-dim); transition:color .15s;}
+  .tab.cog{flex:none; padding:10px 14px;}
+  .tab:hover{color:var(--parchment);}
+  .tab.active{color:#f0e6cf;}
+  .tab .ink{position:absolute; left:0; right:0; bottom:0; height:2px; background:linear-gradient(90deg,#b8923f,#e0bd66); box-shadow:0 0 8px rgba(224,189,102,.5); display:none;}
+  .tab.active .ink{display:block;}
+  .tab.active svg{fill:#f0e6cf;}
+  .tab svg{fill:var(--parchment-dim); vertical-align:middle;}
+  .tabsep{flex:none; height:1px; background:rgba(200,161,74,.16); margin:0 16px;}
+
+  .view{flex:1; min-height:0; display:none; flex-direction:column;}
+  .view.on{display:flex; animation:rise .26s ease;}
+  @keyframes rise{from{transform:translateY(8px);} to{transform:translateY(0);}}
+  @keyframes blink{0%,100%{opacity:.3;} 50%{opacity:1;}}
+
+  /* wiki */
+  .search{display:flex; align-items:center; gap:9px; padding:10px 13px; border-radius:9px; border:1px solid rgba(200,161,74,.28); background:rgba(0,0,0,.28); box-shadow:inset 0 1px 2px rgba(0,0,0,.4); margin:14px 16px 0;}
+  .search input{flex:1; background:transparent; border:none; outline:none; color:var(--parchment); font-family:'Archivo'; font-size:14px;}
+  .search .slash{font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--ink-dim); border:1px solid rgba(200,161,74,.2); border-radius:4px; padding:2px 5px;}
+  .libline{display:flex; align-items:center; gap:7px; font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--ink-dim); margin:8px 20px 0;}
+  .libline .dot{width:5px; height:5px; box-shadow:none;}
+  .seclabel{font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-dim); margin:14px 20px 2px;}
+  .cards{flex:1; min-height:0; overflow:auto; padding:6px 12px 14px; display:flex; flex-direction:column; gap:7px;}
+  .card{display:block; width:100%; text-align:left; padding:13px 14px; border-radius:10px; border:1px solid rgba(200,161,74,.14); background:rgba(0,0,0,.2); cursor:pointer; transition:all .15s;}
+  .card:hover{background:rgba(200,161,74,.07); border-color:rgba(200,161,74,.32); transform:translateX(2px);}
+  .cat{display:inline-block; font-family:'Spline Sans Mono',monospace; font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--brass-mid); border:1px solid rgba(200,161,74,.3); border-radius:4px; padding:2px 6px; margin-bottom:5px;}
+  .card .title{font-size:14px; font-weight:600; color:#f0e6cf;}
+  .card .snip{font-size:12px; color:var(--parchment-muted); margin-top:3px; line-height:1.4;}
+
+  /* reader */
+  .reader{flex:1; min-height:0; display:none; flex-direction:column;}
+  .reader.on{display:flex; animation:rise .24s ease;}
+  .backbtn{align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:7px; border:1px solid rgba(200,161,74,.2); background:rgba(0,0,0,.2); color:var(--brass-mid); cursor:pointer; font-family:'Spline Sans Mono',monospace; font-size:11px; margin:14px 18px 10px; transition:all .15s;}
+  .backbtn:hover{background:rgba(200,161,74,.08);}
+  .rbody{flex:1; min-height:0; overflow:auto; padding:4px 22px 22px;}
+  .reyebrow{font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--brass-mid); margin-bottom:7px;}
+  .rbody h1{font-family:'Pirata One',serif; font-weight:400; font-size:30px; line-height:1.05; margin:0 0 14px; color:var(--brass-bright);}
+  .rbody p{font-size:14px; line-height:1.6; color:var(--parchment-mid); margin:0 0 13px;}
+  .askcta{margin-top:6px; display:inline-flex; align-items:center; gap:8px; padding:11px 15px; border-radius:9px; border:1px solid #6b5326; background:linear-gradient(180deg, rgba(200,161,74,.2), rgba(200,161,74,.06)); color:#f0d488; cursor:pointer; font-family:'Archivo'; font-size:13px; font-weight:600; transition:all .15s;}
+  .askcta:hover{background:linear-gradient(180deg, rgba(200,161,74,.32), rgba(200,161,74,.12));}
+
+  /* ask meister */
+  .ask-sub{flex:none; padding:12px 16px 0; display:flex; align-items:center; gap:8px;}
+  .model-chip{display:inline-flex; align-items:center; gap:6px; font-family:'Spline Sans Mono',monospace; font-size:10px; padding:4px 9px; border-radius:6px; border:1px solid rgba(200,161,74,.25); background:rgba(200,161,74,.06); color:var(--brass-mid);}
+  .model-chip .dot{width:5px; height:5px; box-shadow:none;}
+  .newbtn{font-family:'Spline Sans Mono',monospace; font-size:10px; padding:4px 9px; border-radius:6px; border:1px solid rgba(200,161,74,.2); background:rgba(0,0,0,.2); color:var(--parchment-ghost); cursor:pointer; transition:all .15s;}
+  .newbtn:hover{color:var(--parchment); border-color:rgba(200,161,74,.4);}
+  .thread{flex:1; min-height:0; overflow:auto; padding:16px 16px 12px; display:flex; flex-direction:column; gap:14px;}
+  .ubub{align-self:flex-end; max-width:82%; padding:11px 14px; border-radius:12px 12px 4px 12px; background:rgba(122,58,30,.32); border:1px solid rgba(200,110,70,.35); font-size:14px; line-height:1.5; color:#f0e2d2;}
+  .mwrap{align-self:flex-start; max-width:88%;}
+  .mhead{display:flex; align-items:center; gap:8px; margin-bottom:7px;}
+  .mavatar{width:22px; height:22px; border-radius:6px; background:radial-gradient(circle at 35% 30%, #ffe7a6, #b8923f 60%, #6b4f1d); display:flex; align-items:center; justify-content:center; font-family:'Pirata One',serif; font-size:13px; color:#3a2410;}
+  .mname{font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.1em; color:var(--parchment-ghost); text-transform:uppercase;}
+  .mretr{font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--ink-dim); margin:0 0 7px 30px;}
+  .mbub{padding:13px 15px; border-radius:4px 12px 12px 12px; background:rgba(0,0,0,.26); border:1px solid rgba(200,161,74,.18); font-size:14px; line-height:1.6; color:#dccfb4;}
+  .mbub p{margin:0 0 9px;} .mbub p:last-of-type{margin-bottom:0;}
+  .mbub b{color:var(--brass-bright); font-weight:600;}
+  .mbub .caret{color:var(--brass-bright); animation:blink 1s step-end infinite;}
+  .srcs{display:flex; gap:6px; flex-wrap:wrap; margin-top:12px; padding-top:11px; border-top:1px solid rgba(200,161,74,.14);}
+  .src{font-family:'Spline Sans Mono',monospace; font-size:10px; padding:3px 8px; border-radius:5px; border:1px solid rgba(200,161,74,.25); background:rgba(200,161,74,.06); color:var(--brass-mid);}
+  .suggest{display:flex; gap:7px; flex-wrap:wrap; padding:4px 16px 0;}
+  .sg{font-family:'Archivo'; font-size:12px; padding:6px 11px; border-radius:8px; border:1px solid rgba(200,161,74,.25); background:rgba(0,0,0,.2); color:var(--parchment-mid); cursor:pointer; transition:all .15s;}
+  .sg:hover{background:rgba(200,161,74,.08); border-color:rgba(200,161,74,.45); color:var(--parchment);}
+  .sg:disabled{opacity:.4; cursor:default;}
+  .ask-foot{flex:none; padding:10px 16px 16px;}
+  .ask-note{font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--ink-dim); margin:0 4px 8px; display:flex; align-items:center; gap:6px; line-height:1.5;}
+  .ask-note .dot{width:5px; height:5px; box-shadow:none; animation:blink 1.6s ease-in-out infinite;}
+  .inputbar{display:flex; align-items:flex-end; gap:9px; padding:9px 9px 9px 14px; border-radius:11px; border:1px solid rgba(200,161,74,.28); background:rgba(0,0,0,.3); box-shadow:inset 0 1px 2px rgba(0,0,0,.4);}
+  .inputbar input{flex:1; background:transparent; border:none; outline:none; color:var(--parchment); font-family:'Archivo'; font-size:14px;}
+  .sendbtn{width:34px; height:34px; flex:none; border-radius:8px; border:1px solid #6b5326; background:linear-gradient(180deg,#c8a14a,#8a6d2e); color:#2a1a0c; cursor:pointer; font-size:15px; box-shadow:inset 0 1px 0 rgba(255,235,180,.5);}
+
+  /* settings (read-only flavor) */
+  .settings{flex:1; min-height:0; overflow:auto; padding:16px 18px 20px; display:flex; flex-direction:column; gap:22px;}
+  .ssec > .slabel{font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:9px;}
+  .sdesc{font-size:12px; color:var(--parchment-muted); line-height:1.45; margin-bottom:11px;}
+  .srow{display:flex; align-items:center; gap:11px; padding:11px 13px; border-radius:9px; border:1px solid rgba(200,161,74,.16); background:rgba(0,0,0,.2);}
+  .srow.active{border-color:rgba(200,161,74,.5); background:rgba(200,161,74,.08);}
+  .radio{width:16px; height:16px; flex:none; border-radius:50%; border:1.5px solid rgba(200,161,74,.4); display:flex; align-items:center; justify-content:center;}
+  .radio.on{border-color:var(--brass-bright);} .radio.on::after{content:""; width:7px; height:7px; border-radius:50%; background:var(--brass-bright);}
+  .srow .lbl{font-size:13px; color:#ece0c8; flex:1;}
+  .srow .meta{font-family:'Spline Sans Mono',monospace; font-size:10px; color:var(--parchment-ghost);}
+  .badge{font-family:'Spline Sans Mono',monospace; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:#3a2410; background:var(--brass-mid); border-radius:4px; padding:2px 6px;}
+  .keychip{font-family:'Spline Sans Mono',monospace; font-size:11px; color:var(--brass-bright); border:1px solid rgba(200,161,74,.3); border-radius:6px; padding:5px 9px;}
+  .toggle{width:38px; height:22px; flex:none; border-radius:11px; background:rgba(176,106,74,.7); position:relative;}
+  .toggle::after{content:""; position:absolute; top:2px; left:18px; width:18px; height:18px; border-radius:50%; background:var(--parchment);}
+  .stack{display:flex; flex-direction:column; gap:7px;}
+
+  .foot{flex:none; padding:9px 18px; border-top:1px solid rgba(200,161,74,.16); background:rgba(0,0,0,.22); font-family:'Spline Sans Mono',monospace; font-size:10px; letter-spacing:.04em; color:var(--ink-dim); display:flex; align-items:center; gap:8px;}
+  .foot .sep{opacity:.4;} .foot .tech{color:var(--parchment-ghost);}
+
+  @media (max-width:560px){
+    .scene{display:none;}
+    .stage{padding:32px 18px; gap:34px;}
+    .brand .word{font-size:42px;}
+    .panel{width:100%; max-width:432px; height:660px; max-height:none;}
+  }
+</style>
+</head>
+<body>
+  <div class="scene" aria-hidden="true">
+    <div class="sky"></div><div class="sun"></div><div class="cloud"></div><div class="ground"></div>
+    <div class="sea"></div>
+  </div>
+
+  <main class="stage">
+    <!-- ===== pitch ===== -->
+    <section class="pitch">
+      <div class="brand">
+        <span class="word">Meister</span><span class="sub">guide</span>
+      </div>
+      <h1 class="tagline">A rustic in-game companion overlay for PC games.</h1>
+      <p class="lede">Press a hotkey and it floats over your game like Steam's overlay.
+        Ask Meister, the built-in assistant, about whatever you're stuck on. It pulls answers
+        from the game's wiki and the web, and shows you the sources it used.</p>
+      <ul class="feats">
+        <li>Floats over your game — global hotkey that survives the game grabbing your keyboard.</li>
+        <li>Answers from the game's wiki and a web fallback, every claim backed by sources.</li>
+        <li>Works across more than one game, with a built-in wiki reader.</li>
+        <li>Windows desktop app, written in Python + PySide6.</li>
+      </ul>
+      <div class="cta">
+        <a class="link" href="https://github.com/Hpeen/MeisterGuide" target="_blank" rel="noopener">View source on GitHub ↗</a>
+      </div>
+      <p class="preview-note">This is an interactive preview. <b>The live AI assistant runs in the
+        downloadable Windows app</b> — the answers below are real examples captured from it.
+        Click the suggested questions to watch one stream in.</p>
+    </section>
+
+    <!-- ===== journal panel ===== -->
+    <section class="panel-wrap">
+    <div class="panel">
+      <div class="spine"><div class="stitch"></div><div class="stud top"></div><div class="stud bot"></div></div>
+      <div class="body">
+
+        <div class="hdr">
+          <div class="hdr-row">
+            <span class="name">Meister</span><span class="name-sub">guide</span>
+            <span class="grow"></span>
+            <span class="chip key">Alt&#8201;+&#8201;Insert</span>
+            <button class="xbtn" title="(preview)">✕</button>
+          </div>
+          <div class="pills">
+            <div class="switcher">
+              <button class="pill live" id="gamePill" aria-haspopup="true" aria-expanded="false"><span class="dot"></span><span id="gameName">Minecraft detected</span><span class="caretdown">▾</span></button>
+              <div class="gamemenu" id="gameMenu"></div>
+            </div>
+            <span class="pill info" id="gameProc">javaw.exe · 1.20</span>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="wiki"><span class="ink"></span>Wiki</button>
+          <button class="tab" data-tab="ask"><span class="ink"></span>Ask Meister</button>
+          <button class="tab cog" data-tab="settings"><span class="ink"></span>
+            <svg width="17" height="17" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          </button>
+        </div>
+        <div class="tabsep"></div>
+
+        <!-- WIKI -->
+        <div class="view on" id="view-wiki">
+          <div class="search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c8a14a" stroke-width="2" style="flex:none;"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input placeholder="Search the wiki…" aria-label="Search the wiki">
+            <span class="slash">/</span>
+          </div>
+          <div class="libline"><span class="dot"></span><span id="libline">17,082 guides indexed · full-text · offline-ready</span></div>
+          <div class="seclabel">recent guides</div>
+          <div class="cards" id="cards"></div>
+        </div>
+
+        <!-- READER -->
+        <div class="reader" id="view-reader">
+          <button class="backbtn" id="readerBack">← back to wiki</button>
+          <div class="rbody" id="readerBody"></div>
+        </div>
+
+        <!-- ASK -->
+        <div class="view" id="view-ask">
+          <div class="ask-sub">
+            <span class="model-chip"><span class="dot"></span>auto · online-first</span>
+            <span class="grow"></span>
+            <button class="newbtn" id="newSession">+ new session</button>
+          </div>
+          <div class="suggest" id="suggest"></div>
+          <div class="thread" id="thread"></div>
+          <div class="ask-foot">
+            <div class="ask-note"><span class="dot"></span>Answers shown are captured from the app · install it to ask your own questions.</div>
+            <div class="inputbar">
+              <input placeholder="Pick a suggested question above…" id="askInput" disabled>
+              <button class="sendbtn" title="(preview)">↑</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SETTINGS (read-only flavor) -->
+        <div class="view" id="view-settings">
+          <div class="settings">
+            <div class="ssec">
+              <div class="slabel">ai chat backend</div>
+              <div class="sdesc">Auto reaches for Claude when you've added a key, and falls back to a local Ollama model when you haven't.</div>
+              <div class="stack">
+                <div class="srow active"><span class="radio on"></span><span class="lbl">Auto (online-first, local fallback)</span><span class="badge">default</span></div>
+                <div class="srow"><span class="radio"></span><span class="lbl">Always online (Claude)</span><span class="meta">needs key</span></div>
+                <div class="srow"><span class="radio"></span><span class="lbl">Always local (Ollama)</span><span class="meta">offline</span></div>
+              </div>
+            </div>
+            <div class="ssec">
+              <div class="slabel">knowledge</div>
+              <div class="sdesc">Meister looks in three places, in order: your downloaded guides, the game's wiki fetched live, then a plain web search.</div>
+              <div class="srow"><span class="lbl">Allow web search fallback</span><span class="meta">DuckDuckGo · no key</span><span class="toggle"></span></div>
+            </div>
+            <div class="ssec">
+              <div class="slabel">overlay hotkey</div>
+              <div class="srow"><span class="lbl">Toggle Meister Guide</span><span class="keychip">Alt&#8201;+&#8201;Insert</span></div>
+              <div class="sdesc" style="margin-top:8px;margin-bottom:0;">Registered globally through Win32 — fires even while a game owns the keyboard.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="foot">
+          <span>online out of the box</span><span class="sep">·</span><span>offline once you download guides</span><span class="sep">·</span><span>no account</span>
+          <span class="grow"></span><span class="tech">PySide6</span>
+        </div>
+      </div>
+    </div>
+    </section>
+  </main>
+
+<script>
+(function(){
+  // ---------- data: per game ----------
+  // Each answer paragraph is an array of {t} or {t,b:true} segments.
+  const games = {
+    minecraft: {
+      menuName:'Minecraft', menuDesc:'javaw.exe',
+      name:'Minecraft detected', proc:'javaw.exe · 1.20', scene:'mc',
+      lib:'17,082 guides indexed · full-text · offline-ready',
+      articles:[
+        { cat:'Mechanics', title:'Curing a Zombie Villager',
+          snip:'Weakness potion + golden apple, then wait it out in the shade.',
+          body:[
+            "A zombie villager can be cured back into a normal villager, keeping (and often discounting) its trades. You need a Splash Potion of Weakness and a regular Golden Apple.",
+            "Throw the splash potion so the zombie villager is caught in the cloud, then right-click it with the golden apple while the Weakness effect is active. Red swirling particles confirm the cure has started.",
+            "Conversion takes 3–5 minutes. Keep the villager out of sunlight and away from other hostiles — block it into a 1×2 space so it survives until the timer finishes." ] },
+        { cat:'Dimensions', title:'Building a Nether Portal',
+          snip:'Minimum 4×5 obsidian frame. Corners are optional.',
+          body:[
+            "A Nether Portal needs a frame of obsidian at least 4 wide by 5 tall. The four corner blocks are optional, so the minimum is 10 obsidian.",
+            "Light the inside of the frame with flint and steel. No diamond pickaxe? Cast obsidian in place by pouring water over lava to form the frame, mining only what you can reach." ] },
+        { cat:'Enchanting', title:'Max-Level Enchanting Setup',
+          snip:'Surround the table with 15 bookshelves for level 30.',
+          body:[
+            "To reach level-30 enchantments, place 15 bookshelves one block away from the enchanting table, in a 5×5 ring (with a one-block gap between shelves and table).",
+            "Leave the corners empty if you like — what matters is line of sight. A torch or carpet between the table and a shelf will block that shelf from counting." ] },
+        { cat:'Brewing', title:'First Brewing Stand',
+          snip:'One blaze rod + three cobblestone. Fuel with blaze powder.',
+          body:[
+            "Craft a brewing stand from one blaze rod and three cobblestone. Fuel it with blaze powder — one powder brews several batches.",
+            "Every potion starts from a Water Bottle brewed with Nether Wart to make an Awkward Potion, the base for almost everything else." ] },
+        { cat:'Blocks', title:'Powering a Beacon',
+          snip:'Needs a Nether star and a pyramid of mineral blocks.',
+          body:[
+            "A beacon requires a Nether star (dropped by the Wither) and a pyramid base built from iron, gold, emerald, diamond or netherite blocks.",
+            "A single-tier pyramid (9 blocks) gives one effect at short range; a full four-tier pyramid (164 blocks) unlocks the secondary Regeneration / Haste II range." ] },
+      ],
+      qa:[
+        { q:"How do I cure a zombie villager?", retr:"retrieved 3 guides",
+          a:[
+            [ {t:"Two steps. First weaken it: throw a "},{t:"Splash Potion of Weakness",b:1},{t:" so the cloud catches the zombie villager. Then feed it a "},{t:"Golden Apple",b:1},{t:" by right-clicking while it's afflicted."} ],
+            [ {t:"It shudders with red particles and converts over "},{t:"3–5 minutes",b:1},{t:". Box it into a 1-block space first, or sunlight will burn it before the cure finishes."} ]
+          ], srcs:["Zombie Villager","Splash Potion of Weakness","Golden Apple"] },
+        { q:"How do I make a nether portal?", retr:"retrieved 2 guides",
+          a:[
+            [ {t:"Build a frame of "},{t:"obsidian",b:1},{t:", at least "},{t:"4 wide by 5 tall",b:1},{t:". The corners are optional, so the minimum is "},{t:"10 blocks",b:1},{t:"."} ],
+            [ {t:"Light the inside with "},{t:"flint and steel",b:1},{t:". No diamond pickaxe yet? Cast the obsidian in place by pouring water over lava and mining only what you can reach."} ]
+          ], srcs:["Nether Portal","Obsidian","Flint and Steel"] },
+        { q:"How do I get level 30 enchantments?", retr:"retrieved 2 guides",
+          a:[
+            [ {t:"Surround the enchanting table with "},{t:"15 bookshelves",b:1},{t:", one block away, in a 5×5 ring with a gap between the shelves and the table."} ],
+            [ {t:"What matters is "},{t:"line of sight",b:1},{t:". A torch or carpet between a shelf and the table blocks that shelf from counting toward the level."} ]
+          ], srcs:["Enchanting","Bookshelf","Enchanting Table"] },
+      ],
+    },
+
+    subnautica: {
+      menuName:'Subnautica', menuDesc:'subnautica.fandom.com',
+      name:'Subnautica detected', proc:'Subnautica.exe', scene:'sub',
+      lib:'guides fetched live from the wiki · on-demand, no download needed',
+      articles:[
+        { cat:'Exploration', title:'Repairing the Aurora',
+          snip:'Radiation suit + repair tool, then weld the drive core leaks.',
+          body:[
+            "Soon after you crash, the Aurora's drive core explodes and floods the surrounding water with radiation. You take damage near it until the leaks are sealed.",
+            "Craft a Radiation Suit and a Repair Tool first. Enter through the rear of the ship, work your way to the drive room, and weld every glowing leak. Once they are all sealed the radiation clears." ] },
+        { cat:'Survival', title:'Finding Fresh Water',
+          snip:'Bladderfish in the Fabricator, or a Water Filtration Machine.',
+          body:[
+            "Thirst drains constantly, and drinking raw salt water only makes it worse. The quickest fix is a Bladderfish: catch one and put it in the Fabricator to make Filtered Water.",
+            "For a steady supply, build a Water Filtration Machine once you have the blueprint. As long as it has power it slowly produces both water and salt." ] },
+        { cat:'Vehicles', title:'Building the Seamoth',
+          snip:'Scan the fragments, then build it at the Mobile Vehicle Bay.',
+          body:[
+            "The Seamoth is your first proper submarine. You unlock it by scanning Seamoth fragments found around the shallow wreck sites with your Scanner.",
+            "Once the blueprint is complete, deploy a Mobile Vehicle Bay at the surface and build it there. Its starting crush depth is 200 metres. Depth modules take it deeper." ] },
+        { cat:'Tools', title:'Scanning Fragments',
+          snip:'Scan tech fragments to unlock their blueprints.',
+          body:[
+            "Most equipment stays locked until you scan it. Point the Scanner at a fragment of technology on the seabed and hold to scan it.",
+            "Bigger items need several fragments scanned before the blueprint completes. The tool tells you how many you still need." ] },
+        { cat:'Bases', title:'Powering a Seabase',
+          snip:'Solar near the surface, bioreactor or thermal deeper down.',
+          body:[
+            "Near the surface, Solar Panels are the easy answer, though their output falls with depth and at night.",
+            "Deeper bases run on a Bioreactor fed with organic matter, or a Thermal Plant placed next to a hydrothermal vent for free continuous power." ] },
+      ],
+      qa:[
+        { q:"How do I get fresh water?", retr:"fetched 3 pages",
+          a:[
+            [ {t:"Quickest fix: catch a "},{t:"Bladderfish",b:1},{t:" and put it in the "},{t:"Fabricator",b:1},{t:" to make Filtered Water."} ],
+            [ {t:"For a steady supply, build a "},{t:"Water Filtration Machine",b:1},{t:". As long as it has power it slowly produces water and salt on its own."} ]
+          ], srcs:["Water","Bladderfish","Water Filtration Machine"] },
+        { q:"How do I build the Seamoth?", retr:"fetched 3 pages",
+          a:[
+            [ {t:"First unlock it: "},{t:"scan Seamoth fragments",b:1},{t:" at the shallow wreck sites until the blueprint completes."} ],
+            [ {t:"Then deploy a "},{t:"Mobile Vehicle Bay",b:1},{t:" at the surface and build it there. Its starting crush depth is "},{t:"200 metres",b:1},{t:". Depth modules take it deeper."} ]
+          ], srcs:["Seamoth","Mobile Vehicle Bay","Fragment"] },
+        { q:"How do I stop the radiation from the Aurora?", retr:"fetched 2 pages",
+          a:[
+            [ {t:"After the Aurora's drive core blows it leaks "},{t:"radiation",b:1},{t:" into the surrounding water. Craft a "},{t:"Radiation Suit",b:1},{t:" before you go near it."} ],
+            [ {t:"Head inside to the drive room and "},{t:"weld every glowing leak",b:1},{t:" with the Repair Tool. Once they are all sealed, the radiation clears."} ]
+          ], srcs:["Aurora","Radiation Suit","Repair Tool"] },
+      ],
+    },
+  };
+  const gameOrder = ['minecraft','subnautica'];
+  let current = 'minecraft';
+
+  // ---------- tabs ----------
+  const views = {
+    wiki: document.getElementById('view-wiki'),
+    ask: document.getElementById('view-ask'),
+    settings: document.getElementById('view-settings'),
+  };
+  const reader = document.getElementById('view-reader');
+  const tabs = Array.from(document.querySelectorAll('.tab'));
+
+  function showTab(name){
+    reader.classList.remove('on');
+    Object.keys(views).forEach(k=>views[k].classList.toggle('on', k===name));
+    tabs.forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  }
+  tabs.forEach(t=>t.addEventListener('click', ()=>showTab(t.dataset.tab)));
+
+  // ---------- wiki cards + reader ----------
+  const cardsEl = document.getElementById('cards');
+  const readerBody = document.getElementById('readerBody');
+
+  function rebuildCards(){
+    cardsEl.innerHTML='';
+    games[current].articles.forEach(a=>{
+      const b = document.createElement('button');
+      b.className='card';
+      b.innerHTML = '<span class="cat">'+a.cat+'</span><div class="title">'+a.title+'</div><div class="snip">'+a.snip+'</div>';
+      b.addEventListener('click', ()=>openReader(a));
+      cardsEl.appendChild(b);
+    });
+  }
+  function openReader(a){
+    views.wiki.classList.remove('on');
+    let html = '<div class="reyebrow">'+a.cat+'</div><h1>'+a.title+'</h1>';
+    a.body.forEach(p=> html += '<p>'+p+'</p>');
+    html += '<button class="askcta" id="askAbout">✦ Ask Meister about this</button>';
+    readerBody.innerHTML = html;
+    reader.classList.add('on');
+    document.getElementById('askAbout').addEventListener('click', ()=>showTab('ask'));
+  }
+  document.getElementById('readerBack').addEventListener('click', ()=>{
+    reader.classList.remove('on'); views.wiki.classList.add('on');
+  });
+
+  // ---------- ask meister: suggested questions + streaming ----------
+  const thread = document.getElementById('thread');
+  const suggestEl = document.getElementById('suggest');
+  let streaming = false;
+
+  function rebuildSuggest(){
+    suggestEl.innerHTML='';
+    games[current].qa.forEach((item, i)=>{
+      const c = document.createElement('button');
+      c.className='sg'; c.textContent=item.q;
+      c.addEventListener('click', ()=>{ if(!streaming) runQA(i); });
+      suggestEl.appendChild(c);
+    });
+  }
+  document.getElementById('newSession').addEventListener('click', ()=>{
+    if(streaming) return;
+    thread.innerHTML='';
+    rebuildSuggest();
+  });
+
+  // ---------- game switcher ----------
+  const gamePill = document.getElementById('gamePill');
+  const gameMenu = document.getElementById('gameMenu');
+  const gameNameEl = document.getElementById('gameName');
+  const gameProcEl = document.getElementById('gameProc');
+  const liblineEl = document.getElementById('libline');
+
+  function buildMenu(){
+    gameMenu.innerHTML='';
+    gameOrder.forEach(id=>{
+      const g = games[id];
+      const b = document.createElement('button');
+      b.className = 'gi'+(id===current?' sel':'');
+      b.innerHTML = '<span class="gn">'+g.menuName+'</span><span class="gd">'+g.menuDesc+'</span>';
+      b.addEventListener('click', (e)=>{ e.stopPropagation(); setGame(id); });
+      gameMenu.appendChild(b);
+    });
+  }
+  function closeMenu(){ gameMenu.classList.remove('open'); gamePill.setAttribute('aria-expanded','false'); }
+  gamePill.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const open = gameMenu.classList.toggle('open');
+    gamePill.setAttribute('aria-expanded', open?'true':'false');
+  });
+  document.addEventListener('click', closeMenu);
+
+  function setGame(id){
+    if(!games[id]) return;
+    current = id;
+    const g = games[id];
+    gameNameEl.textContent = g.name;
+    gameProcEl.textContent = g.proc;
+    liblineEl.textContent = g.lib;
+    document.body.classList.toggle('subnautica', g.scene==='sub');
+    streaming = false;
+    thread.innerHTML = '';
+    rebuildCards();
+    rebuildSuggest();
+    buildMenu();
+    closeMenu();
+    showTab('wiki');
+  }
+
+  // initial render
+  rebuildCards();
+  rebuildSuggest();
+  buildMenu();
+
+  function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+  async function runQA(i){
+    const item = games[current].qa[i];
+    streaming = true;
+    suggestEl.children[i].disabled = true;
+
+    // user bubble
+    const ub = document.createElement('div');
+    ub.className='ubub'; ub.textContent=item.q;
+    thread.appendChild(ub);
+    thread.scrollTop = thread.scrollHeight;
+    await delay(450);
+
+    // meister scaffold
+    const wrap = document.createElement('div');
+    wrap.className='mwrap';
+    wrap.innerHTML =
+      '<div class="mhead"><span class="mavatar">M</span><span class="mname">meister</span></div>'+
+      '<div class="mretr">'+item.retr+' · answered by Meister</div>'+
+      '<div class="mbub"></div>';
+    thread.appendChild(wrap);
+    const bub = wrap.querySelector('.mbub');
+    thread.scrollTop = thread.scrollHeight;
+    await delay(500);
+
+    // stream paragraphs word by word
+    for(const para of item.a){
+      const p = document.createElement('p');
+      bub.appendChild(p);
+      for(const seg of para){
+        const words = seg.t.split(/(\s+)/); // keep whitespace
+        for(const w of words){
+          if(w===''){ continue; }
+          const span = document.createElement('span');
+          if(seg.b){ const bEl=document.createElement('b'); bEl.textContent=w; span.appendChild(bEl); }
+          else { span.textContent=w; }
+          p.appendChild(span);
+          thread.scrollTop = thread.scrollHeight;
+          if(w.trim()!=='') await delay(46);
+        }
+      }
+    }
+
+    // sources
+    await delay(280);
+    const srcWrap = document.createElement('div');
+    srcWrap.className='srcs';
+    item.srcs.forEach(s=>{
+      const sp=document.createElement('span'); sp.className='src'; sp.textContent='↳ '+s; srcWrap.appendChild(sp);
+    });
+    bub.appendChild(srcWrap);
+    thread.scrollTop = thread.scrollHeight;
+    streaming = false;
+  }
+})();
+</script>
+</body>
+</html>
